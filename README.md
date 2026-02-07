@@ -1,1 +1,1 @@
-https://www.icloud.com/shortcuts/a9c9e2022a424ac88c8abce4e03d1c5a
+# [iOS Shortcut Version](https://www.icloud.com/shortcuts/7f9608c629f543268bf63023f7f82675)
