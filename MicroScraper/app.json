@@ -9,16 +9,20 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true,
       "bundleIdentifier": "com.microscraper.app",
+      "buildNumber": "1",
+      "supportsTablet": true,
       "infoPlist": {
         "NSUserActivityTypes": [
           "com.microscraper.search",
           "com.microscraper.scan"
-        ]
+        ],
+        "NSCameraUsageDescription": "This app needs camera access to scan product barcodes."
       }
     },
     "android": {
+      "package": "com.microscraper.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
