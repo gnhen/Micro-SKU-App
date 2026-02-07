@@ -289,30 +289,30 @@ export default function ScanScreen() {
           {/* Price and Sale Info */}
           {data.originalPrice && data.savings && (
             <View style={styles.saleContainer}>
-              <Text style={[styles.originalPrice, { color: theme.text }]}>
+              <Text selectable style={[styles.originalPrice, { color: theme.text }]}>
                 <Text style={styles.strikethrough}>{data.originalPrice}</Text> Save {data.savings}
               </Text>
             </View>
           )}
           
           <View style={styles.priceRow}>
-            <Text style={styles.price}>{data.price}</Text>
+            <Text selectable style={styles.price}>{data.price}</Text>
             {data.stockText && (
-              <Text style={[styles.stockText, { color: data.inStock ? '#00AA00' : '#DDAA00' }]}>
+              <Text selectable style={[styles.stockText, { color: data.inStock ? '#00AA00' : '#DDAA00' }]}>
                 {data.stockText}
               </Text>
             )}
           </View>
-          <Text style={[styles.productTitle, { color: theme.text }]}>{data.name}</Text>
+          <Text selectable style={[styles.productTitle, { color: theme.text }]}>{data.name}</Text>
 
           {/* Reviews Section */}
           {data.reviews && data.reviews.rating > 0 && (
             <View style={styles.reviewsContainer}>
               <View style={styles.reviewsRow}>
-                <Text style={[styles.reviewStars, { color: '#FFB800' }]}>
+                <Text selectable style={[styles.reviewStars, { color: '#FFB800' }]}>
                   {'★'.repeat(Math.round(data.reviews.rating))}{'☆'.repeat(5 - Math.round(data.reviews.rating))}
                 </Text>
-                <Text style={[styles.reviewText, { color: theme.text }]}>
+                <Text selectable style={[styles.reviewText, { color: theme.text }]}>
                   {data.reviews.rating.toFixed(1)}
                 </Text>
               </View>
@@ -321,22 +321,22 @@ export default function ScanScreen() {
 
           {/* Location */}
           {data.location && (
-            <Text style={[styles.infoText, { color: theme.text }]}>Location: {data.location}</Text>
+            <Text selectable style={[styles.infoText, { color: theme.text }]}>Location: {data.location}</Text>
           )}
           
           {data.mfrPart && (
-            <Text style={[styles.infoText, { color: theme.text }]}>Mfr Part#: {data.mfrPart}</Text>
+            <Text selectable style={[styles.infoText, { color: theme.text }]}>Mfr Part#: {data.mfrPart}</Text>
           )}
           {data.upc && (
-            <Text style={[styles.infoText, { color: theme.text }]}>UPC: {data.upc}</Text>
+            <Text selectable style={[styles.infoText, { color: theme.text }]}>UPC: {data.upc}</Text>
           )}
 
           {/* Pro Installation Section */}
           {data.proInstallation && data.proInstallation.length > 0 && (
             <View style={styles.servicesContainer}>
-              <Text style={[styles.sectionHeader, { color: theme.text }]}>Pro Installation</Text>
+              <Text selectable style={[styles.sectionHeader, { color: theme.text }]}>Pro Installation</Text>
               {data.proInstallation.map((service, idx) => (
-                <Text key={idx} style={[styles.serviceText, { color: theme.text }]}>
+                <Text selectable key={idx} style={[styles.serviceText, { color: theme.text }]}>
                   • {service.name} - ${service.price.toFixed(2)}
                 </Text>
               ))}
@@ -346,9 +346,9 @@ export default function ScanScreen() {
           {/* Protection Plans Section */}
           {data.protectionPlans && data.protectionPlans.length > 0 && (
             <View style={styles.servicesContainer}>
-              <Text style={[styles.sectionHeader, { color: theme.text }]}>Protect and Support</Text>
+              <Text selectable style={[styles.sectionHeader, { color: theme.text }]}>Protect and Support</Text>
               {data.protectionPlans.map((plan, idx) => (
-                <Text key={idx} style={[styles.serviceText, { color: theme.text }]}>
+                <Text selectable key={idx} style={[styles.serviceText, { color: theme.text }]}>
                   • {plan.name} - ${plan.price.toFixed(2)}
                 </Text>
               ))}
@@ -359,7 +359,7 @@ export default function ScanScreen() {
             style={styles.specsHeader}
             onPress={() => setExpandedSpecs(!expandedSpecs)}
           >
-            <Text style={[styles.sectionHeader, { color: theme.text }]}>
+            <Text selectable style={[styles.sectionHeader, { color: theme.text }]}>
               Specifications ({data.specs.length})
             </Text>
             <Ionicons 
@@ -372,7 +372,7 @@ export default function ScanScreen() {
           {expandedSpecs && (
             <ScrollView style={styles.specsContainer} nestedScrollEnabled={true}>
               {data.specs.map((spec, i) => (
-                <Text key={i} style={[styles.specText, { color: theme.text }]}>
+                <Text selectable key={i} style={[styles.specText, { color: theme.text }]}>
                   • {spec}
                 </Text>
               ))}

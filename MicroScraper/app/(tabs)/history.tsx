@@ -75,10 +75,10 @@ export default function HistoryScreen() {
                 style={[styles.historyItem, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
                 onPress={() => handleHistoryItemPress(item.sku)}
               >
-                <Text style={[styles.itemName, { color: theme.text }]}>{item.name}</Text>
-                <Text style={[styles.itemSku, { color: theme.text }]}>SKU: {item.sku}</Text>
-                <Text style={[styles.itemPrice, { color: '#C00' }]}>{item.price}</Text>
-                <Text style={[styles.itemDate, { color: theme.text }]}>{new Date(item.date).toLocaleDateString()}</Text>
+                <Text selectable style={[styles.itemName, { color: theme.text }]}>{item.name}</Text>
+                <Text selectable style={[styles.itemSku, { color: theme.text }]}>SKU: {item.sku}</Text>
+                <Text selectable style={[styles.itemPrice, { color: '#C00' }]}>{item.price}</Text>
+                <Text selectable style={[styles.itemDate, { color: theme.text }]}>{new Date(item.date).toLocaleDateString()}</Text>
               </TouchableOpacity>
             ))}
           </>
