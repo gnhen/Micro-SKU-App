@@ -23,6 +23,9 @@
 1. Visit the [Shortcut URL](https://www.icloud.com/shortcuts/6d2ae6b723774c589fb1c6dc8657500d)
 2. Install
 3. Add to Home Screen
+   
    i. Tap 3 dots on top right of Shortcut
+   
    ii. Tap Name of Shortcut
+   
    iii. Tap "Add to Home Screen"
