@@ -11,6 +11,46 @@ import { useFocusEffect } from '@react-navigation/native';
 import { GestureHandlerRootView, PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
 
+// Helper function to process scanned barcode data
+const processBarcodeData = (scannedData) => {
+  // Aggressively clean invisible characters which might mess up regex/length checks
+  const trimmedData = scannedData.replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim();
+  const charCount = trimmedData.length;
+  
+  console.log(`Processing barcode: "${trimmedData}" (Length: ${charCount})`);
+
+  // 1. URL Check
+  if (trimmedData.toLowerCase().includes('microcenter.com')) {
+    return { value: trimmedData, isURL: true };
+  }
+  
+  // 2. Exact 6 digits Check (Direct SKU)
+  if (charCount === 6) {
+    return trimmedData;
+  }
+  
+  // 3. Special Internal Code (7-10 characters)
+  // Examples: "75007500df", "75007583df"
+  // Logic: If it starts with 6 digits and is within this length range, pull the SKU.
+  if (charCount >= 7 && charCount <= 10) {
+    const startsWithSixDigits = /^\d{6}/.test(trimmedData);
+    if (startsWithSixDigits) {
+      const extractedSku = trimmedData.substring(0, 6);
+      console.log(`Extracted SKU from internal code: ${extractedSku}`);
+      return extractedSku;
+    }
+  }
+  
+  // 4. UPC / Long Code Check ( > 10 characters )
+  // Example: "824142287309"
+  if (charCount > 10) {
+    return { value: trimmedData, isUPC: true };
+  }
+  
+  // Fallback
+  return trimmedData;
+};
+
 export default function ScanScreen() {
   const [sku, setSku] = useState('');
   const [data, setData] = useState(null);
@@ -164,9 +204,12 @@ export default function ScanScreen() {
     }
   };
 
-  const handleSearch = async (searchSku) => {
+  const handleSearch = async (searchSku, isUPC = false) => {
     const targetSku = searchSku || sku;
     if (!targetSku) return;
+
+    // Check if expected SKU is actually a URL
+    const isURL = targetSku.toLowerCase().includes('microcenter.com');
 
     setLoading(true);
     setScanning(false);
@@ -181,15 +224,27 @@ export default function ScanScreen() {
     if (result.error) {
       if (result.error === "noResults") {
         setError(`Incorrect SKU Entry\n\nNo matches found for SKU: ${result.searchedSku}\n\nPlease verify the SKU and try again.`);
-      } else if (result.error === "skuMismatch") {
+      } else if (result.error === "skuMismatch" && !isUPC && !isURL) {
         setError(`Incorrect SKU Entry\n\nYou searched for: ${result.searchedSku}\n\nPlease verify the SKU and try again.`);
+      } else if (result.error === "skuMismatch" && (isUPC || isURL)) {
+        // Auto-redirect for UPC mismatches OR URL searches
+        console.log("UPC/URL match found via redirect. Loading:", result.foundSku);
+        handleSearch(result.foundSku, false);
       } else {
         Alert.alert("Error", result.error);
       }
-    } else if (result.sku && result.sku !== targetSku) {
+    } else if (result.sku && result.sku !== targetSku && !isUPC && !isURL) {
       // SKU mismatch - Micro Center redirected to a different product
       setError(`Incorrect SKU Entry\n\nYou searched for: ${targetSku}\n\nPlease verify the SKU and try again.`);
       setData(null);
+    } else if (result.sku && result.sku !== targetSku && (isUPC || isURL)) {
+       // It was a UPC or URL search that resolved to a valid SKU - Accept it
+       const finalData = { ...result, sku: result.sku }; // Use the found SKU
+       // If it was a URL, update the input field to the clean SKU so it looks nice
+       if (isURL) setSku(result.sku);
+       setData(finalData);
+       setValidImageUrls(result.imageUrls || []);
+       addToHistory(finalData);
     } else {
       const finalData = { ...result, sku: targetSku };
       setData(finalData);
@@ -199,9 +254,24 @@ export default function ScanScreen() {
   };
 
   const handleBarcodeScanned = ({ data }) => {
-    setSku(data);
-    setScanning(false);
-    handleSearch(data);
+    console.log('Raw barcode data:', data);
+    const processedData = processBarcodeData(data);
+    console.log('Processed barcode data:', processedData);
+    
+    if (typeof processedData === 'object' && processedData.isUPC) {
+      setSku(processedData.value);
+      setScanning(false);
+      handleSearch(processedData.value, true); // Pass isUPC=true
+    } else if (typeof processedData === 'object' && processedData.isURL) {
+      // Handle URL if needed, for now just pass value
+      setSku(processedData.value);
+      setScanning(false);
+      handleSearch(processedData.value, false);
+    } else {
+      setSku(processedData);
+      setScanning(false);
+      handleSearch(processedData, false);
+    }
   };
 
   if (scanning) {

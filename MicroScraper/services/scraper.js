@@ -1,5 +1,13 @@
 const BASE_URL = 'https://www.microcenter.com';
 
+const HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Cache-Control': 'no-cache',
+  'Pragma': 'no-cache'
+};
+
 const decodeHtml = (html) => {
   return html
     .replace(/&amp;/g, '&')
@@ -12,18 +20,15 @@ const decodeHtml = (html) => {
 };
 
 const extractReviews = (html) => {
-  // Extract star rating and review count from JSON-LD structured data
   let rating = 0;
   let reviewCount = 0;
   
-  // Look for aggregateRating in JSON-LD
   const aggregateMatch = html.match(/"aggregateRating"\s*:\s*{[^}]*"ratingValue"\s*:\s*"([0-9.]+)"[^}]*"reviewCount"\s*:\s*"(\d+)"/i);
   if (aggregateMatch) {
     rating = parseFloat(aggregateMatch[1]);
     reviewCount = parseInt(aggregateMatch[2], 10);
   }
   
-  // Fallback: try separate patterns
   if (rating === 0) {
     const ratingMatch = html.match(/"ratingValue"\s*:\s*"([0-9.]+)"/);
     if (ratingMatch && ratingMatch[1]) {
@@ -45,7 +50,6 @@ const extractReviews = (html) => {
 const extractProInstallation = (html) => {
   const installations = [];
   
-  // Pattern: Graphics Card Installation Service - $59.99
   const installPattern = /data-name="([^"]*Installation Service[^"]*)"[^>]*data-price="([0-9.]+)"/gi;
   let match;
   
@@ -62,14 +66,12 @@ const extractProInstallation = (html) => {
 const extractProtectionPlans = (html) => {
   const plans = [];
   
-  // Catch-all pattern from radio buttons - captures full plan names with details
   const radioPattern = /data-name="(\d+\s*Year[^"]*Plan[^"]*)"[^>]*data-price\s*="([0-9.]+)"/gi;
   let match;
   
   while ((match = radioPattern.exec(html)) !== null) {
     const name = decodeHtml(match[1]);
     const price = parseFloat(match[2]);
-    // Avoid duplicates
     if (!plans.some(p => p.name === name && p.price === price)) {
       plans.push({ name, price });
     }
@@ -80,7 +82,6 @@ const extractProtectionPlans = (html) => {
 };
 
 const extractLocation = (html) => {
-  // Pattern: <span>Located In Aisle 3<span class="otherLocation">, Aisle 3B Endcap</span></span>
   const locationMatch = html.match(/<span>Located In ([^<]+)(?:<span[^>]*class=['"][^'"]*otherLocation[^'"]*['"][^>]*>([^<]+)<\/span>)?<\/span>/i);
   if (locationMatch) {
     let location = locationMatch[1].trim();
@@ -99,18 +100,14 @@ const extractStock = (html, storeId) => {
   let stock = 0;
   let inStock = false;
   
-  // Pattern: <span class="inventoryCnt">25+ <span class="msgInStock">NEW IN STOCK</span></span><span class="storeName"> at Sharonville Store</span>
   const stockMatch = html.match(/<span[^>]*class=['"][^'"]*inventoryCnt[^'"]*['"][^>]*>([\s\S]*?)<\/span><span[^>]*class=['"][^'"]*storeName[^'"]*['"][^>]*>([^<]+)<\/span>/i);
   if (stockMatch) {
-    // Remove nested HTML tags from count text
     let countText = stockMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     
-    // Extract number for display (just "25+" or "0-24")
     const numMatch = countText.match(/(\d+)\+?/);
     if (numMatch) {
       stock = parseInt(numMatch[1], 10);
       inStock = true;
-      // Show "25+ in Stock" or "5 in Stock"
       if (countText.includes('+')) {
         stockText = numMatch[1] + '+ in Stock';
       } else {
@@ -118,7 +115,6 @@ const extractStock = (html, storeId) => {
       }
     }
     
-    // Check for "IN STOCK" or "OUT OF STOCK"
     if (countText.match(/in\s*stock/i)) {
       inStock = true;
       if (stock === 0) {
@@ -140,11 +136,9 @@ const extractStock = (html, storeId) => {
 const extractSpecsFromFeatures = (html) => {
   const specs = [];
   
-  // Extract from z_features JSON (contains all structured specs)
   const zFeaturesMatch = html.match(/"z_features"\s*:\s*"([^"]+)"/);
   if (zFeaturesMatch && zFeaturesMatch[1]) {
     const featuresString = zFeaturesMatch[1];
-    // Parse format: Group:group_name, Feature:feature_name, Value:feature_value | ...
     const featurePairs = featuresString.split(' | ');
     
     featurePairs.forEach(pair => {
@@ -157,7 +151,6 @@ const extractSpecsFromFeatures = (html) => {
         const feature = featureMatch[1].replace(/_/g, ' ');
         const value = valueMatch[1].replace(/\\/g, '');
         
-        // Capitalize first letter
         const formattedFeature = feature.charAt(0).toUpperCase() + feature.slice(1);
         const formattedGroup = group.charAt(0).toUpperCase() + group.slice(1);
         
@@ -176,8 +169,6 @@ const extractSpecsFromFeatures = (html) => {
 const extractSpecs = (html) => {
   const specs = [];
   
-  // Extract SKU, Mfr Part#, UPC from the overview section
-  // Pattern: <strong class="lbl">Label:</strong><span class="item">Value</span>
   const infoPattern = /<strong[^>]*class=['"]lbl['"][^>]*>([^<]+)<\/strong>\s*<span[^>]*class=['"]item['"][^>]*>([^<]+)<\/span>/gi;
   let match;
   
@@ -189,8 +180,6 @@ const extractSpecs = (html) => {
     }
   }
 
-  // Extract features from bullet list
-  // Pattern: <li>:marker " feature text"</li>
   const featurePattern = /<li[^>]*>\s*:?marker\s*["']?\s*([^<"']+)["']?\s*<\/li>/gi;
   while ((match = featurePattern.exec(html)) !== null) {
     const feature = decodeHtml(match[1]).trim();
@@ -199,18 +188,14 @@ const extractSpecs = (html) => {
     }
   }
 
-  // Also try simpler li pattern
   const simpleLiPattern = /<li[^>]*>([^<]+)<\/li>/gi;
   while ((match = simpleLiPattern.exec(html)) !== null) {
     const text = decodeHtml(match[1]).trim();
-    // Filter out :marker and very short text
     if (text && text.length > 10 && !text.includes(':marker')) {
       specs.push({ label: 'Feature', value: text });
     }
   }
 
-  // Extract detailed specs from spec tables/divs
-  // Look for patterns like <th>Label</th><td>Value</td>
   const tableSpecPattern = /<(?:th|td)[^>]*>([^<]+)<\/(?:th|td)>\s*<(?:th|td)[^>]*>([^<]+)<\/(?:th|td)>/gi;
   while ((match = tableSpecPattern.exec(html)) !== null) {
     const label = decodeHtml(match[1]).trim();
@@ -225,59 +210,141 @@ const extractSpecs = (html) => {
 
 export const fetchProductBySku = async (sku, storeId = '071') => {
   try {
-    if (!sku || sku.trim().length < 6) {
+    let productId = null;
+    let productUrl = null;
+    let originalSku = sku;
+
+    if (sku && sku.toLowerCase().includes('microcenter.com/product/')) {
+       const urlMatch = sku.match(/product\/(\d+)\//i);
+       if (urlMatch && urlMatch[1]) {
+         productId = urlMatch[1];
+         const separator = sku.includes('?') ? '&' : '?';
+         productUrl = `${sku}${separator}storeid=${storeId}`;
+         console.log(`Detected valid Micro Center product URL. ID: ${productId}`);
+       }
+    } 
+    
+    if (!productId && (!sku || sku.trim().length < 6)) {
       throw new Error('Enter valid 6-digit SKU');
     }
 
-    // Build the search URL - using storeid to avoid the store selection page
-    const searchUrl = `${BASE_URL}/search/search_results.aspx?Ntt=${sku}&searchButton=search&storeid=${storeId}`;
-    
-    const response = await fetch(searchUrl);
-    const htmlText = await response.text();
+    let productHtml;
 
-    // Check for "no results" message
-    if (htmlText.includes("Oh no!") && htmlText.includes("couldn't find any matches")) {
-      return { error: "noResults", searchedSku: sku };
-    }
+    if (!productId) {
+      const searchUrl = `${BASE_URL}/search/search_results.aspx?Ntt=${sku}&searchButton=search&storeid=${storeId}`;
+      
+      const response = await fetch(searchUrl, { headers: HEADERS });
+      
+      if (response.url && response.url.includes('/product/')) {
+        console.log('Search redirected to product page:', response.url);
+        
+        const idMatch = response.url.match(/product\/(\d+)\//);
+        if (idMatch) {
+            productId = idMatch[1];
+        } else {
+            const htmlText = await response.text();
+            const match = htmlText.match(/['"]productId['"]\s*:\s*['"](\d+)['"]/i) || 
+                          htmlText.match(/data-id=['"](\d+)['"]/i) || 
+                          htmlText.match(/<input[^>]*name=['"]productId['"][^>]*value=['"](\d+)['"]/i);
+            if (match) productId = match[1];
+        }
 
-    // Check if we're on a search results page with multiple products
-    if (htmlText.includes("search_results.aspx") || htmlText.includes("Search Results") || htmlText.includes("Showing Results For")) {
-      // Check if it's a SKU mismatch/redirect
-      const redirectMatch = htmlText.match(/You searched for[^\d]+(\d+)[^\d]+Showing Results For[^\d]+(\d+)/i);
-      if (redirectMatch) {
-        return { error: "skuMismatch", searchedSku: redirectMatch[1], foundSku: redirectMatch[2] };
+        if (!productId) {
+             throw new Error("Product ID not found on redirected page");
+        }
+        
+        const cleanBaseUrl = response.url.split('?')[0];
+        productUrl = `${cleanBaseUrl}?storeid=${storeId}`;
+        console.log(`Cleaning redirected URL to: ${productUrl}`);
+      } else {
+        const htmlText = await response.text();
+
+        if (htmlText.includes("Oh no!") && htmlText.includes("couldn't find any matches")) {
+            return { error: "noResults", searchedSku: sku };
+        }
+
+        if (htmlText.includes("search_results.aspx") || htmlText.includes("Search Results") || htmlText.includes("Showing Results For")) {
+            // Check if it's a SKU mismatch/redirect
+            const redirectMatch = htmlText.match(/You searched for[^\d]+(\d+)[^\d]+Showing Results For[^\d]+(\d+)/i);
+            if (redirectMatch) {
+                return { error: "skuMismatch", searchedSku: redirectMatch[1], foundSku: redirectMatch[2] };
+            }
+            
+            // Heuristic to avoid header/navigation links (like "Services", "Top Deals"):
+            // Search results usually appear after the "Sort" dropdown or "Result count" text.
+            // We strip the header part of the HTML to ensure we find a link from the actual result list.
+            const resultStartMarkers = [
+                'Sort by:', 
+                'sort by:', 
+                'Sort By:',
+                'class="result_list"',
+                'items found',
+                'Showing'
+            ];
+            
+            let searchStartIndex = 0;
+            for (const marker of resultStartMarkers) {
+                const idx = htmlText.indexOf(marker);
+                if (idx > -1 && idx > searchStartIndex) {
+                    // We want the start of the results, which is typically after the LAST occurrence of "Sort by" or headers
+                    // Actually, "Sort by" appears once at the top of the list.
+                    searchStartIndex = idx;
+                    // Once we find a strong marker like "Sort by", we can break or just take it.
+                    // "Sort by" is very reliable.
+                    break;
+                }
+            }
+
+            const relevantHtml = searchStartIndex > 0 ? htmlText.substring(searchStartIndex) : htmlText;
+
+            // Try to find the first product link to get the full URL (with slug)
+            // Relaxed regex to find hrefs more easily (handles single or double quotes)
+            const linkMatch = relevantHtml.match(/href=["'](\/product\/\d+\/[^"']+)["']/i);
+            
+            if (linkMatch && linkMatch[1]) {
+                productUrl = BASE_URL + linkMatch[1] + `?storeid=${storeId}`;
+                const idMatch = linkMatch[1].match(/product\/(\d+)\//);
+                if (idMatch) productId = idMatch[1];
+                console.log('Found product link on search page:', productUrl);
+            } else {
+                const multiProductMatch = htmlText.match(/data-id=['"](\d+)['"][^>]*data-id=['"](\d+)['"]/i);
+                if (multiProductMatch) {
+                    return { error: "noResults", searchedSku: sku };
+                }
+            }
+        }
+        
+        if (!productId) {
+            let match = htmlText.match(/['"]productId['"]\s*:\s*['"](\d+)['"]/i);
+            if (!match) {
+                match = htmlText.match(/data-id=['"](\d+)['"]/i);
+            }
+            if (!match) {
+                match = htmlText.match(/<input[^>]*name=['"]productId['"][^>]*value=['"](\d+)['"]/i);
+            }
+
+            if (!match || !match[1]) {
+                if (htmlText.includes("Access Denied") || htmlText.includes("Cloudflare")) {
+                throw new Error("Blocked by Bot Protection");
+                }
+                throw new Error("Product ID not found");
+            }
+
+            productId = match[1];
+        }
+
+        if (!productUrl) {
+            productUrl = `${BASE_URL}/product/${productId}/?storeid=${storeId}`;
+            console.log('Constructed ID-only URL (might require slug):', productUrl);
+        }
       }
-      // If we're on search results but no clear redirect message, it's likely invalid
-      const multiProductMatch = htmlText.match(/data-id=['"](\d+)['"][^>]*data-id=['"](\d+)['"]/i);
-      if (multiProductMatch) {
-        return { error: "noResults", searchedSku: sku };
-      }
     }
 
-    // Try different patterns to find the product ID in the HTML
-    let match = htmlText.match(/['"]productId['"]\s*:\s*['"](\d+)['"]/i);
-    if (!match) {
-      match = htmlText.match(/data-id=['"](\d+)['"]/i);
-    }
-    if (!match) {
-      match = htmlText.match(/<input[^>]*name=['"]productId['"][^>]*value=['"](\d+)['"]/i);
+    if (typeof productHtml === 'undefined') {
+        const productResponse = await fetch(productUrl, { headers: HEADERS });
+        productHtml = await productResponse.text();
     }
 
-    if (!match || !match[1]) {
-      if (htmlText.includes("Access Denied") || htmlText.includes("Cloudflare")) {
-        throw new Error("Blocked by Bot Protection");
-      }
-      throw new Error("Product ID not found");
-    }
-
-    const productId = match[1];
-    const productUrl = `${BASE_URL}/product/${productId}/*`;
-
-    // Fetch the full product page for detailed specs
-    const productResponse = await fetch(productUrl);
-    const productHtml = await productResponse.text();
-
-    // Extract actual SKU from the product page
     let actualSku = null;
     const skuMatch = productHtml.match(/<strong[^>]*class=['"]lbl['"][^>]*>SKU:?<\/strong>\s*<span[^>]*class=['"]item['"][^>]*>([^<]+)<\/span>/i) ||
                      productHtml.match(/data-sku=['"](\d+)['"]/i) ||
@@ -287,13 +354,14 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
       console.log('Extracted actual SKU from product page:', actualSku);
       console.log('Searched SKU:', sku);
       
-      // Check if SKUs match
-      if (actualSku !== sku) {
+      if (originalSku && originalSku.toLowerCase().includes('microcenter.com/product/')) {
+         console.log('URL search detected, adopting page SKU:', actualSku);
+         sku = actualSku;
+      } else if (actualSku !== sku) {
         return { error: "skuMismatch", searchedSku: sku, foundSku: actualSku };
       }
     }
 
-    // Extract product name
     let productName = "";
     const nameMatch = productHtml.match(/<h2[^>]*class=['"]productTi['"][^>]*>([^<]+)<\/h2>/i) ||
                       productHtml.match(/<h1[^>]*data-name=['"]([^'"]+)['"]/i) ||
@@ -302,7 +370,6 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
       productName = decodeHtml(nameMatch[1]);
     }
 
-    // Extract brand
     let productBrand = "";
     const brandMatch = productHtml.match(/data-brand=['"]([^'"]+)['"]/i) ||
                        productHtml.match(/<span[^>]*class=['"][^'"]*brand[^'"]*['"][^>]*>([^<]+)<\/span>/i);
@@ -310,19 +377,16 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
       productBrand = decodeHtml(brandMatch[1]);
     }
 
-    // Extract price and sale information
     let price = "Price not found";
     let originalPrice = null;
     let savings = null;
     
-    // Check for sale price first
     const saleMatch = productHtml.match(/<strike><span[^>]*>Original price <\/span>\$([0-9,]+\.?[0-9]*)<\/strike>[^<]*<span[^>]*>Save \$([0-9,]+\.?[0-9]*)<\/span>/i);
     if (saleMatch) {
       originalPrice = `$${saleMatch[1]}`;
       savings = `$${saleMatch[2]}`;
     }
     
-    // Extract current price
     const priceMatch = productHtml.match(/<span[^>]*id=['"]pricing['"][^>]*content="([0-9,]+\.?[0-9]*)"/i) ||
                        productHtml.match(/<span[^>]*id=['"]pricing['"][^>]*>\$?([0-9,]+\.?[0-9]*)<\/span>/i) ||
                        productHtml.match(/data-price=['"]([^'"]+)['"]/i);
@@ -331,83 +395,64 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
       price = `$${priceNum}`;
     }
 
-    // Extract MFR Part Number from the specs we already extracted
     let mfrPart = "";
     const mfrFromHtml = productHtml.match(/<strong[^>]*class=['"]lbl['"][^>]*>Mfr Part #?:?<\/strong>\s*<span[^>]*class=['"]item['"][^>]*>([^<]+)<\/span>/i);
     if (mfrFromHtml && mfrFromHtml[1]) {
       mfrPart = decodeHtml(mfrFromHtml[1]).trim();
     }
 
-    // Extract UPC from the specs
     let upc = "";
     const upcFromHtml = productHtml.match(/<strong[^>]*class=['"]lbl['"][^>]*>UPC:?<\/strong>\s*<span[^>]*class=['"]item['"][^>]*>([^<]+)<\/span>/i);
     if (upcFromHtml && upcFromHtml[1]) {
       upc = decodeHtml(upcFromHtml[1]).trim();
     }
 
-    // Construct product image URLs - use the productimages subdomain
-    // Generate both front_zoom and package_zoom URLs
-    // Package images continue numbering from where front images end
     const imageUrls = [];
     
-    // Add front_zoom images (01-10)
     for (let imgNum = 1; imgNum <= 10; imgNum++) {
       const imgNumStr = imgNum.toString().padStart(2, '0');
       imageUrls.push(`https://productimages.microcenter.com/${productId}_${sku}_${imgNumStr}_front_zoom.jpg`);
     }
     
-    // Add package_zoom images (11-20, continuing from front images)
     for (let imgNum = 11; imgNum <= 20; imgNum++) {
-      const imgNumStr = (imgNum - 10).toString().padStart(2, '0'); // Maps 11->01, 12->02, etc.
+      const imgNumStr = (imgNum - 10).toString().padStart(2, '0');
       imageUrls.push(`https://productimages.microcenter.com/${productId}_${sku}_${imgNumStr}_package_zoom.jpg`);
     }
     
-    // Use first image as primary
     const imageUrl = imageUrls[0];
     
     console.log('Generated image URLs (front 01-10 + package 01-10):', imageUrls.length);
 
-    // Extract all detailed specs from z_features JSON and fallback patterns
     const structuredSpecs = extractSpecsFromFeatures(productHtml);
     const detailedSpecs = structuredSpecs.length > 0 ? structuredSpecs : extractSpecs(productHtml);
 
-    // Extract reviews
     const reviews = extractReviews(productHtml);
     
-    // Extract Pro Installation services
     const proInstallation = extractProInstallation(productHtml);
     
-    // Extract Protection Plans
     const protectionPlans = extractProtectionPlans(productHtml);
     
-    // Extract Stock information
     const stockInfo = extractStock(productHtml, storeId);
     
-    // Extract Location
     const location = extractLocation(productHtml);
 
-    // Build display name
     let displayName = productName || `Product ${sku}`;
     if (productBrand && !productName.toLowerCase().includes(productBrand.toLowerCase())) {
       displayName = `${productBrand} ${productName}`;
     }
 
-    // Build specs array for display - filter to specific categories
     const specsArray = [];
     
-    // Add basic info first
     specsArray.push(`SKU: ${sku}`);
     specsArray.push(`Product ID: ${productId}`);
     if (productBrand) specsArray.push(`Brand: ${productBrand}`);
     if (mfrPart) specsArray.push(`Mfr Part#: ${mfrPart}`);
     if (upc) specsArray.push(`UPC: ${upc}`);
 
-    // Log all specs for debugging
     console.log('All extracted specs:', detailedSpecs.slice(0, 20));
     
-    // Group specs by their categories
     const specsByGroup = {};
-    const protectionPlanSpecs = []; // Renamed to avoid conflict with extracted protectionPlans
+    const protectionPlanSpecs = [];
     const protectionPlanPattern = /\d+\s*Year\s*(?:Replacement|Protection)\s*Plan/i;
     
     detailedSpecs.forEach(spec => {
@@ -415,40 +460,34 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
       const value = spec.value;
       const group = spec.group || 'Other';
       
-      // Skip basic info already added
       if (['SKU', 'Mfr Part #', 'UPC', 'Brand'].includes(label)) return;
       
-      // Check for protection plans in specs
       if (protectionPlanPattern.test(label) || protectionPlanPattern.test(value)) {
         protectionPlanSpecs.push(`${label}: ${value}`);
         return;
       }
       
-      // Group all other specs
       if (!specsByGroup[group]) {
         specsByGroup[group] = [];
       }
       specsByGroup[group].push(`${label}: ${value}`);
     });
     
-    // Add specs by group (prioritize display, features, warranty groups)
     const priorityGroups = ['Display', 'Features', 'Connectivity', 'Physical specifications', 'Warranty'];
     
     priorityGroups.forEach(groupName => {
       if (specsByGroup[groupName] && specsByGroup[groupName].length > 0) {
         specsArray.push(`\n${groupName}`);
         specsByGroup[groupName].forEach(s => specsArray.push(`• ${s}`));
-        delete specsByGroup[groupName]; // Remove so we don't add twice
+        delete specsByGroup[groupName];
       }
     });
     
-    // Add protection plan specs if any (from product specs, not the purchasable plans)
     if (protectionPlanSpecs.length > 0) {
       specsArray.push('\nProtection Plan Details');
       protectionPlanSpecs.forEach(p => specsArray.push(`• ${p}`));
     }
     
-    // Add remaining groups
     Object.keys(specsByGroup).forEach(groupName => {
       if (specsByGroup[groupName].length > 0) {
         specsArray.push(`\n${groupName}`);
@@ -470,14 +509,14 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
       inStock: stockInfo.inStock,
       location,
       imageUrl,
-      imageUrls, // All available images
+      imageUrls,
       url: productUrl,
       productId,
       mfrPart,
       upc,
-      reviews, // { rating, reviewCount }
-      proInstallation, // Array of installation services
-      protectionPlans, // Array of protection plans
+      reviews,
+      proInstallation,
+      protectionPlans,
       detailedSpecs,
       specs: specsArray
     };

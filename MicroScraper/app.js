@@ -48,6 +48,46 @@ const ThemeProvider = ({ children }) => {
 
 // --- COMPONENTS ---
 
+// Helper function to process scanned barcode data
+const processBarcodeData = (scannedData) => {
+  // Aggressively clean invisible characters which might mess up regex/length checks
+  const trimmedData = scannedData.replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim();
+  const charCount = trimmedData.length;
+  
+  console.log(`Processing barcode: "${trimmedData}" (Length: ${charCount})`);
+
+  // 1. URL Check
+  if (trimmedData.toLowerCase().includes('microcenter.com')) {
+    return { value: trimmedData, isURL: true };
+  }
+  
+  // 2. Exact 6 digits Check (Direct SKU)
+  if (charCount === 6) {
+    return trimmedData;
+  }
+  
+  // 3. Special Internal Code (7-10 characters)
+  // Examples: "75007500df", "75007583df"
+  // Logic: If it starts with 6 digits and is within this length range, pull the SKU.
+  if (charCount >= 7 && charCount <= 10) {
+    const startsWithSixDigits = /^\d{6}/.test(trimmedData);
+    if (startsWithSixDigits) {
+      const extractedSku = trimmedData.substring(0, 6);
+      console.log(`Extracted SKU from internal code: ${extractedSku}`);
+      return extractedSku;
+    }
+  }
+  
+  // 4. UPC / Long Code Check ( > 10 characters )
+  // Example: "824142287309"
+  if (charCount > 10) {
+    return { value: trimmedData, isUPC: true };
+  }
+  
+  // Fallback
+  return trimmedData;
+};
+
 // 1. SETTINGS SCREEN
 function SettingsScreen() {
   const { isDark, toggleTheme, theme } = useContext(ThemeContext);
@@ -161,9 +201,11 @@ function ScanScreen({ route, navigation }) {
     }
   };
 
-  const handleSearch = async (searchSku) => {
+  const handleSearch = async (searchSku, isUPC = false) => {
     const targetSku = searchSku || sku;
     if (!targetSku) return;
+
+    console.log(`Starting search for: ${targetSku} (isUPC: ${isUPC})`);
 
     setLoading(true);
     setScanning(false);
@@ -175,19 +217,55 @@ function ScanScreen({ route, navigation }) {
     setLoading(false);
     
     if (result.error) {
-      Alert.alert("Error", result.error);
+      console.log(`Search result error: ${result.error}`, result);
+      // Check for SKU mismatch - only show error if it's NOT a UPC code
+      if (result.error === "skuMismatch" && !isUPC) {
+        Alert.alert(
+          "SKU Mismatch",
+          `Searched for SKU ${result.searchedSku}, but found SKU ${result.foundSku}. Would you like to view this product instead?`,
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "View Product", onPress: () => handleSearch(result.foundSku, false) }
+          ]
+        );
+      } else if (result.error === "skuMismatch" && isUPC) {
+        console.log("UPC mismatch detected, auto-redirecting to found SKU:", result.foundSku);
+        // For UPCs, just accept the found SKU automatically
+        handleSearch(result.foundSku, false);
+      } else {
+        Alert.alert("Error", result.error);
+      }
     } else {
-      // Inject the input SKU into the result object so we can save it to history
-      const finalData = { ...result, sku: targetSku };
+      // Use the actual SKU from the product page (not the search term for UPCs)
+      const actualSku = result.sku || targetSku;
+      const finalData = { ...result, sku: actualSku };
       setData(finalData);
       addToHistory(finalData);
     }
   };
 
   const handleBarcodeScanned = ({ data }) => {
-    setSku(data);
-    setScanning(false);
-    handleSearch(data);
+    console.log('Raw barcode data:', data);
+    const processedData = processBarcodeData(data);
+    console.log('Processed barcode data:', processedData);
+    
+    // Check if it's a UPC code (returns an object with isUPC flag)
+    if (typeof processedData === 'object' && processedData.isUPC) {
+      console.log('Detected as UPC, searching with:', processedData.value);
+      setSku(processedData.value);
+      setScanning(false);
+      handleSearch(processedData.value, true); // Pass isUPC=true
+    } else if (typeof processedData === 'object' && processedData.isURL) {
+      console.log('Detected as URL, using values:', processedData.value);
+      setSku(processedData.value);
+      setScanning(false);
+      handleSearch(processedData.value, false);
+    } else {
+      console.log('Detected as regular SKU, searching with:', processedData);
+      setSku(processedData);
+      setScanning(false);
+      handleSearch(processedData, false);
+    }
   };
 
   // Camera View
