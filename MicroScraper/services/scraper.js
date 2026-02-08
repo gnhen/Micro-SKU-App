@@ -50,13 +50,25 @@ const extractReviews = (html) => {
 const extractProInstallation = (html) => {
   const installations = [];
   
-  const installPattern = /data-name="([^"]*Installation Service[^"]*)"[^>]*data-price="([0-9.]+)"/gi;
+  // Find all input/button elements (including checkbox type for installation services)
+  const elementPattern = /<(?:input|button)[^>]+>/gi;
   let match;
   
-  while ((match = installPattern.exec(html)) !== null) {
-    const name = decodeHtml(match[1]);
-    const price = parseFloat(match[2]);
-    installations.push({ name, price });
+  while ((match = elementPattern.exec(html)) !== null) {
+    const element = match[0];
+    
+    // Check if this element has Installation Service in data-name
+    const nameMatch = element.match(/data-name\s*=\s*["']([^"']*Installation Service[^"']*)["']/i);
+    const priceMatch = element.match(/data-price\s*=\s*["']([0-9.]+)["']/i);
+    
+    // Only include if it's NOT in the header (checkboxes/buttons with IDs like "apID..." are product-specific)
+    const hasProductId = element.match(/id\s*=\s*["']ap/i);
+    
+    if (nameMatch && priceMatch && hasProductId) {
+      const name = decodeHtml(nameMatch[1]);
+      const price = parseFloat(priceMatch[1]);
+      installations.push({ name, price });
+    }
   }
   
   console.log('Extracted installations:', installations);
@@ -66,14 +78,24 @@ const extractProInstallation = (html) => {
 const extractProtectionPlans = (html) => {
   const plans = [];
   
-  const radioPattern = /data-name="(\d+\s*Year[^"]*Plan[^"]*)"[^>]*data-price\s*="([0-9.]+)"/gi;
+  // Find all input type="radio" elements, then check if they have plan data
+  const elementPattern = /<input[^>]+type\s*=\s*["']radio["'][^>]*>/gi;
   let match;
   
-  while ((match = radioPattern.exec(html)) !== null) {
-    const name = decodeHtml(match[1]);
-    const price = parseFloat(match[2]);
-    if (!plans.some(p => p.name === name && p.price === price)) {
-      plans.push({ name, price });
+  while ((match = elementPattern.exec(html)) !== null) {
+    const element = match[0];
+    
+    // Check if this element has a plan name and price
+    // Updated pattern to include "Replacement" which is common for service plans
+    const nameMatch = element.match(/data-name\s*=\s*["']([^"']*(?:\d+\s*Year|Replacement|Protection|Extended|Extension)[^"']*Plan[^"']*)["']/i);
+    const priceMatch = element.match(/data-price\s*=\s*["']([0-9.]+)["']/i);
+    
+    if (nameMatch && priceMatch) {
+      const name = decodeHtml(nameMatch[1]);
+      const price = parseFloat(priceMatch[1]);
+      if (!plans.some(p => p.name === name && p.price === price)) {
+        plans.push({ name, price });
+      }
     }
   }
   
@@ -363,11 +385,15 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
     }
 
     let productName = "";
+    let contentStartIndex = 0;
     const nameMatch = productHtml.match(/<h2[^>]*class=['"]productTi['"][^>]*>([^<]+)<\/h2>/i) ||
                       productHtml.match(/<h1[^>]*data-name=['"]([^'"]+)['"]/i) ||
                       productHtml.match(/<h1[^>]*>([^<]+)<\/h1>/i);
-    if (nameMatch && nameMatch[1]) {
-      productName = decodeHtml(nameMatch[1]);
+    if (nameMatch) {
+      if (nameMatch[1]) {
+        productName = decodeHtml(nameMatch[1]);
+      }
+      contentStartIndex = nameMatch.index;
     }
 
     let productBrand = "";
@@ -428,6 +454,8 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
 
     const reviews = extractReviews(productHtml);
     
+    // Search the full HTML for services/plans - they appear before the product title
+    // The id="ap..." check in extractProInstallation filters out header navigation links
     const proInstallation = extractProInstallation(productHtml);
     
     const protectionPlans = extractProtectionPlans(productHtml);

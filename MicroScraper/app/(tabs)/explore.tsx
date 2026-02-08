@@ -11,7 +11,6 @@ export default function SettingsScreen() {
   const [isDark, setIsDark] = useState(false);
   const [storeId, setStoreId] = useState('071');
   const [modalVisible, setModalVisible] = useState(false);
-  const [shortcutsModalVisible, setShortcutsModalVisible] = useState(false);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -65,14 +64,6 @@ export default function SettingsScreen() {
         </Text>
       </TouchableOpacity>
 
-      <TouchableOpacity 
-        style={[styles.settingRow, { borderBottomColor: theme.border }]} 
-        onPress={() => setShortcutsModalVisible(true)}
-      >
-        <Text style={[styles.label, { color: theme.text }]}>iOS Shortcuts</Text>
-        <Text style={{ color: '#007AFF', fontSize: 16 }}>Setup Guide</Text>
-      </TouchableOpacity>
-
       <Modal visible={modalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalContainer}>
           <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
@@ -98,40 +89,6 @@ export default function SettingsScreen() {
           </View>
         </View>
       </Modal>
-
-      {/* Shortcuts Help Modal */}
-      <Modal visible={shortcutsModalVisible} animationType="slide" transparent={true}>
-        <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>iOS Shortcuts Setup</Text>
-            <ScrollView>
-              <Text style={[styles.shortcutHeader, { color: theme.text }]}>1. Search by SKU</Text>
-              <Text style={[styles.shortcutStep, { color: theme.text }]}>• Open Shortcuts app</Text>
-              <Text style={[styles.shortcutStep, { color: theme.text }]}>• Tap + to create new shortcut</Text>
-              <Text style={[styles.shortcutStep, { color: theme.text }]}>• Add "Ask for Input" action (Number)</Text>
-              <Text style={[styles.shortcutStep, { color: theme.text }]}>• Add "Open URLs" action</Text>
-              <Text style={[styles.shortcutUrl, { color: '#007AFF' }]}>URL: microscraper://search?sku=</Text>
-              <Text style={[styles.shortcutStep, { color: theme.text }]}>• Tap after "sku=" and select "Input"</Text>
-              <Text style={[styles.shortcutStep, { color: theme.text }]}>• Name it "Search Micro Center"</Text>
-              
-              <Text style={[styles.shortcutHeader, { color: theme.text, marginTop: 20 }]}>2. Open Scanner</Text>
-              <Text style={[styles.shortcutStep, { color: theme.text }]}>• Open Shortcuts app</Text>
-              <Text style={[styles.shortcutStep, { color: theme.text }]}>• Tap + to create new shortcut</Text>
-              <Text style={[styles.shortcutStep, { color: theme.text }]}>• Add "Open URLs" action</Text>
-              <Text style={[styles.shortcutUrl, { color: '#007AFF' }]}>URL: microscraper://scan</Text>
-              <Text style={[styles.shortcutStep, { color: theme.text }]}>• Name it "Scan Micro Center"</Text>
-              
-              <Text style={[styles.shortcutNote, { color: theme.text, marginTop: 20 }]}>💡 Tip: Use "Hey Siri, [Shortcut Name]" for voice control!</Text>
-            </ScrollView>
-            <TouchableOpacity 
-              style={styles.closeButton} 
-              onPress={() => setShortcutsModalVisible(false)}
-            >
-              <Text style={{ color: 'white', fontWeight: 'bold' }}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -146,8 +103,4 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
   storeOption: { paddingVertical: 15, borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between' },
   closeButton: { marginTop: 20, backgroundColor: '#007AFF', padding: 15, borderRadius: 10, alignItems: 'center' },
-  shortcutHeader: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
-  shortcutStep: { fontSize: 14, marginBottom: 6, marginLeft: 10 },
-  shortcutUrl: { fontSize: 13, marginLeft: 20, marginTop: 4, marginBottom: 8, fontFamily: 'monospace' },
-  shortcutNote: { fontSize: 14, fontStyle: 'italic', textAlign: 'center', marginTop: 10 },
 });
