@@ -223,13 +223,54 @@ export default function ScanScreen() {
     
     if (result.error) {
       if (result.error === "noResults") {
-        setError(`Incorrect SKU Entry\n\nNo matches found for SKU: ${result.searchedSku}\n\nPlease verify the SKU and try again.`);
-      } else if (result.error === "skuMismatch" && !isUPC && !isURL) {
-        setError(`Incorrect SKU Entry\n\nYou searched for: ${result.searchedSku}\n\nPlease verify the SKU and try again.`);
-      } else if (result.error === "skuMismatch" && (isUPC || isURL)) {
-        // Auto-redirect for UPC mismatches OR URL searches
-        console.log("UPC/URL match found via redirect. Loading:", result.foundSku);
-        handleSearch(result.foundSku, false);
+        Alert.alert(
+          "Product Not Found", 
+          `Scanned Text: ${result.searchedSku}`,
+          [
+            {
+              text: "Cancel",
+              style: "cancel",
+              onPress: () => {
+                setError(`Incorrect SKU Entry\n\nNo matches found for SKU: ${result.searchedSku}\n\nPlease verify the SKU and try again.`);
+              }
+            },
+            { 
+              text: "Scan for Manufacturer Code?", 
+              onPress: () => setScanning(true) 
+            }
+          ]
+        );
+      } else if (result.error === "skuMismatch") {
+        // Check if the input was a standard 6-digit numeric SKU
+        const isNumericSku = /^\d{6}$/.test(targetSku);
+        
+        // If it was a UPC, URL, or non-numeric code (like SC1113), accept the redirect automatically.
+        // Codes often redirect to SKUs, so this is usually a success case.
+        if (isUPC || isURL || !isNumericSku) {
+           console.log("Auto-redirecting mismatch for Code/UPC/URL. Loading:", result.foundSku);
+           handleSearch(result.foundSku, false);
+        } else {
+           // Mismatch on a proper 6-digit SKU. Show alert with options.
+            Alert.alert(
+              "SKU Mismatch", 
+              `Scanned: ${targetSku}\nFound SKU: ${result.foundSku}`,
+              [
+                {
+                  text: "Cancel",
+                  style: "cancel",
+                  onPress: () => setError(`Incorrect SKU Entry\n\nYou searched for: ${targetSku}\n\nPlease verify the SKU and try again.`)
+                },
+                { 
+                  text: "Scan for Manufacturer Code?", 
+                  onPress: () => setScanning(true) 
+                },
+                { 
+                  text: "View Found Product", 
+                  onPress: () => handleSearch(result.foundSku, false) 
+                }
+              ]
+            );
+        }
       } else {
         Alert.alert("Error", result.error);
       }
