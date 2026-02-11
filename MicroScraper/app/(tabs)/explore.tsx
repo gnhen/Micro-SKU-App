@@ -6,6 +6,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { STORES } from '../../constants';
+import versionInfo from '../../version.json';
 
 export default function SettingsScreen() {
   const [isDark, setIsDark] = useState(false);
@@ -89,6 +90,10 @@ export default function SettingsScreen() {
           </View>
         </View>
       </Modal>
+
+      <View style={styles.versionContainer}>
+        <Text style={styles.versionText}>Build v{versionInfo.version}</Text>
+      </View>
     </View>
   );
 }
@@ -99,6 +104,8 @@ const styles = StyleSheet.create({
   settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1 },
   label: { fontSize: 18 },
   modalContainer: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
+  versionContainer: { position: 'absolute', bottom: 20, left: 0, right: 0, alignItems: 'center' },
+  versionText: { fontSize: 12, color: '#999' },
   modalContent: { margin: 20, borderRadius: 10, padding: 20, maxHeight: '80%' },
   modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
   storeOption: { paddingVertical: 15, borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between' },

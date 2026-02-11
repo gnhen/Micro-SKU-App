@@ -544,6 +544,16 @@ export default function ScanScreen() {
               ))}
             </ScrollView>
           )}
+
+          {/* Open Product Page Button */}
+          {data.url && (
+            <TouchableOpacity 
+              style={styles.openPageButton} 
+              onPress={() => Linking.openURL(data.url)}
+            >
+              <Text style={styles.openPageButtonText}>Open Product Page</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
       </ScrollView>
@@ -632,6 +642,8 @@ const styles = StyleSheet.create({
   sectionHeader: { fontWeight: 'bold', fontSize: 16 },
   specsContainer: { maxHeight: 300, marginTop: 5 },
   specText: { marginLeft: 10, marginBottom: 6, fontSize: 13 },
+  openPageButton: { backgroundColor: '#007AFF', padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 15, marginBottom: 10 },
+  openPageButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   cancelScanBtn: { position: 'absolute', bottom: 50, alignSelf: 'center', backgroundColor: 'red', padding: 15, borderRadius: 30 },
   fullScreenContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.98)', justifyContent: 'center', alignItems: 'center' },
   fullScreenTouchable: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' },
