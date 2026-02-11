@@ -1,11 +1,32 @@
 const BASE_URL = 'https://www.microcenter.com';
 
+// Rate limiting to avoid 403 errors
+let lastRequestTime = 0;
+const MIN_REQUEST_INTERVAL = 2000; // 2 seconds between requests
+
+const waitForRateLimit = async () => {
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
+    const waitTime = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
+    console.log(`[Rate Limit] Waiting ${waitTime}ms before next request`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+  lastRequestTime = Date.now();
+};
+
 const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
   'Accept-Language': 'en-US,en;q=0.9',
-  'Cache-Control': 'no-cache',
-  'Pragma': 'no-cache'
+  'Accept-Encoding': 'gzip, deflate, br',
+  'DNT': '1',
+  'Connection': 'keep-alive',
+  'Upgrade-Insecure-Requests': '1',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Cache-Control': 'max-age=0'
 };
 
 const decodeHtml = (html) => {
@@ -232,6 +253,7 @@ const extractSpecs = (html) => {
 
 export const fetchProductBySku = async (sku, storeId = '071') => {
   try {
+    console.log(`[fetchProductBySku] Starting fetch for SKU: ${sku}, storeId: ${storeId}`);
     let productId = null;
     let productUrl = null;
     let originalSku = sku;
@@ -247,6 +269,7 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
     } 
     
     if (!productId && (!sku || sku.trim().length < 6)) {
+      console.error('[fetchProductBySku] Invalid SKU - too short');
       throw new Error('Enter valid 6-digit SKU');
     }
 
@@ -254,8 +277,11 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
 
     if (!productId) {
       const searchUrl = `${BASE_URL}/search/search_results.aspx?Ntt=${sku}&searchButton=search&storeid=${storeId}`;
+      console.log(`[fetchProductBySku] Fetching search URL: ${searchUrl}`);
       
+      await waitForRateLimit(); // Wait to avoid rate limiting
       const response = await fetch(searchUrl, { headers: HEADERS });
+      console.log(`[fetchProductBySku] Search response status: ${response.status}, URL: ${response.url}`);
       
       if (response.url && response.url.includes('/product/')) {
         console.log('Search redirected to product page:', response.url);
@@ -363,8 +389,12 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
     }
 
     if (typeof productHtml === 'undefined') {
+        console.log(`[fetchProductBySku] Fetching product page: ${productUrl}`);
+        await waitForRateLimit(); // Wait to avoid rate limiting
         const productResponse = await fetch(productUrl, { headers: HEADERS });
+        console.log(`[fetchProductBySku] Product response status: ${productResponse.status}`);
         productHtml = await productResponse.text();
+        console.log(`[fetchProductBySku] Product HTML length: ${productHtml.length}`);
     }
 
     let actualSku = null;
@@ -550,7 +580,8 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
     };
 
   } catch (error) {
-    console.error("Scrape Error:", error);
+    console.error("[fetchProductBySku] Scrape Error:", error);
+    console.error("[fetchProductBySku] Error stack:", error.stack);
     return { error: error.message };
   }
 };

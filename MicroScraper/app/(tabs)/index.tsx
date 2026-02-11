@@ -21,11 +21,13 @@ const processBarcodeData = (scannedData) => {
 
   // 1. URL Check
   if (trimmedData.toLowerCase().includes('microcenter.com')) {
+    console.log('Detected Micro Center URL');
     return { value: trimmedData, isURL: true };
   }
   
   // 2. Exact 6 digits Check (Direct SKU)
-  if (charCount === 6) {
+  if (/^\d{6}$/.test(trimmedData)) {
+    console.log('Detected 6-digit SKU');
     return trimmedData;
   }
   
@@ -44,10 +46,12 @@ const processBarcodeData = (scannedData) => {
   // 4. UPC / Long Code Check ( > 10 characters )
   // Example: "824142287309"
   if (charCount > 10) {
+    console.log('Detected UPC code (>10 chars)');
     return { value: trimmedData, isUPC: true };
   }
   
   // Fallback
+  console.log('Using fallback - returning trimmed data as-is');
   return trimmedData;
 };
 
@@ -63,6 +67,7 @@ export default function ScanScreen() {
   const [expandedSpecs, setExpandedSpecs] = useState(true);
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [validImageUrls, setValidImageUrls] = useState([]);
+  const [scannerEnabled, setScannerEnabled] = useState(true);
   
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
@@ -173,6 +178,13 @@ export default function ScanScreen() {
     };
   }, []);
 
+  // Reset scan lock when starting a new scan session
+  useEffect(() => {
+    if (scanning) {
+      setScannerEnabled(true);
+    }
+  }, [scanning]);
+
   const theme = {
     bg: isDark ? '#1a1a1a' : '#ffffff',
     text: isDark ? '#ffffff' : '#000000',
@@ -204,9 +216,14 @@ export default function ScanScreen() {
     }
   };
 
-  const handleSearch = async (searchSku, isUPC = false) => {
+  const handleSearch = async (searchSku, isUPC = false, fromBarcodeScan = false) => {
     const targetSku = searchSku || sku;
-    if (!targetSku) return;
+    if (!targetSku) {
+      if (fromBarcodeScan) {
+        setScannerEnabled(true);
+      }
+      return;
+    }
 
     // Check if expected SKU is actually a URL
     const isURL = targetSku.toLowerCase().includes('microcenter.com');
@@ -216,12 +233,17 @@ export default function ScanScreen() {
     setData(null);
     setError(null);
     
-    const storeId = await AsyncStorage.getItem('storeId') || '071';
-    const result = await fetchProductBySku(targetSku, storeId);
-    
-    setLoading(false);
+    try {
+      console.log(`[handleSearch] Starting search - SKU: ${targetSku}, isUPC: ${isUPC}, fromBarcodeScan: ${fromBarcodeScan}`);
+      const storeId = await AsyncStorage.getItem('storeId') || '071';
+      console.log(`[handleSearch] Using storeId: ${storeId}`);
+      const result = await fetchProductBySku(targetSku, storeId);
+      console.log(`[handleSearch] Result received:`, JSON.stringify(result, null, 2).substring(0, 500));
+      
+      setLoading(false);
     
     if (result.error) {
+      console.log(`[handleSearch] Error in result: ${result.error}`);
       if (result.error === "noResults") {
         Alert.alert(
           "Product Not Found", 
@@ -292,26 +314,50 @@ export default function ScanScreen() {
       setValidImageUrls(result.imageUrls || []);
       addToHistory(finalData);
     }
+    
+    // Always re-enable scanner after processing completes
+    if (fromBarcodeScan) {
+      console.log('[handleSearch] Re-enabling scanner (success)');
+      setScannerEnabled(true);
+    }
+    } catch (error) {
+      console.error('[handleSearch] Catch block - Search error:', error);
+      console.error('[handleSearch] Error stack:', error.stack);
+      setLoading(false);
+      setError(error.message || 'An error occurred');
+      if (fromBarcodeScan) {
+        console.log('[handleSearch] Re-enabling scanner (error)');
+        setScannerEnabled(true);
+      }
+    }
   };
 
   const handleBarcodeScanned = ({ data }) => {
-    console.log('Raw barcode data:', data);
+    // Disable scanner immediately to prevent multiple scans
+    if (!scannerEnabled) {
+      console.log('[handleBarcodeScanned] Scanner disabled, ignoring scan');
+      return;
+    }
+    
+    setScannerEnabled(false);
+    console.log('[handleBarcodeScanned] Raw barcode data:', data);
     const processedData = processBarcodeData(data);
-    console.log('Processed barcode data:', processedData);
+    console.log('[handleBarcodeScanned] Processed barcode data:', processedData);
+    console.log('[handleBarcodeScanned] Barcode type check - isUPC:', typeof processedData === 'object' && processedData.isUPC, 'isURL:', typeof processedData === 'object' && processedData.isURL);
     
     if (typeof processedData === 'object' && processedData.isUPC) {
       setSku(processedData.value);
       setScanning(false);
-      handleSearch(processedData.value, true); // Pass isUPC=true
+      handleSearch(processedData.value, true, true); // isUPC=true, fromBarcodeScan=true
     } else if (typeof processedData === 'object' && processedData.isURL) {
       // Handle URL if needed, for now just pass value
       setSku(processedData.value);
       setScanning(false);
-      handleSearch(processedData.value, false);
+      handleSearch(processedData.value, false, true); // isUPC=false, fromBarcodeScan=true
     } else {
       setSku(processedData);
       setScanning(false);
-      handleSearch(processedData, false);
+      handleSearch(processedData, false, true); // isUPC=false, fromBarcodeScan=true
     }
   };
 
@@ -328,10 +374,19 @@ export default function ScanScreen() {
     }
     return (
       <View style={{ flex: 1 }}>
-        <CameraView style={{ flex: 1 }} onBarcodeScanned={handleBarcodeScanned} />
+        <CameraView 
+          style={{ flex: 1 }} 
+          onBarcodeScanned={scannerEnabled ? handleBarcodeScanned : undefined}
+          barcodeScannerSettings={{
+            barcodeTypes: ["qr", "ean13", "ean8", "code128", "code39", "upc_a", "upc_e"],
+          }}
+        />
         <TouchableOpacity 
           style={styles.cancelScanBtn} 
-          onPress={() => setScanning(false)}
+          onPress={() => {
+            setScanning(false);
+            setScannerEnabled(true);
+          }}
         >
           <Text style={styles.buttonText}>Cancel Scan</Text>
         </TouchableOpacity>
