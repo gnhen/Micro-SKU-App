@@ -98,7 +98,8 @@ const downloadAndInstallUpdate = async (downloadUrl, fileName) => {
     
     Alert.alert('Downloading...', 'Please wait while the update downloads.');
     
-    const fileUri = FileSystem.documentDirectory + fileName;
+    // Download to the public Downloads directory using SAF (Storage Access Framework)
+    const fileUri = FileSystem.cacheDirectory + fileName;
     
     const downloadResumable = FileSystem.createDownloadResumable(
       downloadUrl,
@@ -111,31 +112,61 @@ const downloadAndInstallUpdate = async (downloadUrl, fileName) => {
     );
     
     const { uri } = await downloadResumable.downloadAsync();
-    console.log(`[Update] Downloaded to: ${uri}`);
+    console.log(`[Update] Downloaded to cache: ${uri}`);
+    
+    // Move file to public Downloads directory
+    const downloadsPath = FileSystem.StorageAccessFramework.getUriForDirectoryInRoot('Download');
+    console.log(`[Update] Downloads path: ${downloadsPath}`);
+    
+    // Copy to Downloads using SAF
+    const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync(downloadsPath);
+    
+    if (!permissions.granted) {
+      throw new Error('Permission to access Downloads folder was denied');
+    }
+    
+    const destUri = await FileSystem.StorageAccessFramework.createFileAsync(
+      permissions.directoryUri,
+      fileName,
+      'application/vnd.android.package-archive'
+    );
+    
+    // Read the file and write it to the new location
+    const fileContent = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    await FileSystem.StorageAccessFramework.writeAsStringAsync(destUri, fileContent, { encoding: FileSystem.EncodingType.Base64 });
+    
+    console.log(`[Update] File moved to Downloads: ${destUri}`);
     
     Alert.alert(
       'Download Complete',
-      'The update has been downloaded. Opening installer...',
+      `The update (${fileName}) has been saved to your Downloads folder.\n\nOpen Downloads and tap the APK file to install.`,
       [
         {
-          text: 'Install',
+          text: 'Open Downloads Folder',
           onPress: async () => {
             try {
-              // Get content URI for the APK file
-              const contentUri = await FileSystem.getContentUriAsync(uri);
-              console.log(`[Update] Opening content URI: ${contentUri}`);
-              
-              // Launch the install intent for the APK
+              // Open the Downloads folder directly
               await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-                data: contentUri,
-                flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
-                type: 'application/vnd.android.package-archive',
+                data: 'content://com.android.externalstorage.documents/document/primary:Download',
+                type: 'vnd.android.document/directory',
+                flags: 1,
               });
             } catch (error) {
-              console.error('[Update] Error opening installer:', error);
-              Alert.alert('Installation Failed', `Could not open installer: ${error.message}`);
+              console.error('[Update] Error opening downloads:', error);
+              // Fallback: try to open file manager
+              try {
+                await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+                  type: 'resource/folder',
+                });
+              } catch (fallbackError) {
+                Alert.alert('Error', `Please open your Downloads folder manually to find: ${fileName}`);
+              }
             }
           }
+        },
+        {
+          text: 'OK',
+          style: 'cancel'
         }
       ]
     );
