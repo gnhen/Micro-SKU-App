@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import { Platform, Alert, Linking } from 'react-native';
+import * as IntentLauncher from 'expo-intent-launcher';
+import { Platform, Alert } from 'react-native';
 import versionInfo from '../version.json';
 
 // Configure your GitHub repo here
@@ -110,11 +111,21 @@ const downloadAndInstallUpdate = async (downloadUrl, fileName) => {
         {
           text: 'Install',
           onPress: async () => {
-            // Open the APK file for installation
-            const contentUri = await FileSystem.getContentUriAsync(uri);
-            console.log(`[Update] Opening content URI: ${contentUri}`);
-            
-            await Linking.openURL(contentUri);
+            try {
+              // Get content URI for the APK file
+              const contentUri = await FileSystem.getContentUriAsync(uri);
+              console.log(`[Update] Opening content URI: ${contentUri}`);
+              
+              // Launch the install intent for the APK
+              await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+                data: contentUri,
+                flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+                type: 'application/vnd.android.package-archive',
+              });
+            } catch (error) {
+              console.error('[Update] Error opening installer:', error);
+              Alert.alert('Installation Failed', `Could not open installer: ${error.message}`);
+            }
           }
         }
       ]
