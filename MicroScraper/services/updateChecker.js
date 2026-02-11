@@ -1,7 +1,12 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import * as IntentLauncher from 'expo-intent-launcher';
 import { Platform, Alert } from 'react-native';
 import versionInfo from '../version.json';
+
+// Conditionally import expo-intent-launcher only on Android
+let IntentLauncher;
+if (Platform.OS === 'android') {
+  IntentLauncher = require('expo-intent-launcher');
+}
 
 // Configure your GitHub repo here
 const GITHUB_OWNER = 'gnhen'; // TODO: Update this

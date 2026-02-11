@@ -1,31 +1,27 @@
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, StatusBar } from 'react-native';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import React, { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 
 export default function HistoryScreen() {
+  const colorScheme = useColorScheme();
   const router = useRouter();
-  const [isDark, setIsDark] = useState(false);
-  
+  const isDark = colorScheme === 'dark';
   const theme = {
-    bg: isDark ? '#1a1a1a' : '#ffffff',
-    text: isDark ? '#ffffff' : '#000000',
-    border: isDark ? '#444444' : '#eeeeee',
-    cardBg: isDark ? '#333333' : '#f9f9f9',
-    price: isDark ? '#ff4444' : '#C00',
+    bg: isDark ? '#000' : '#fff',
+    text: isDark ? '#fff' : '#000',
+    border: isDark ? '#333' : '#ccc',
+    cardBg: isDark ? '#111' : '#f9f9f9',
   };
 
   const [history, setHistory] = useState<any[]>([]);
 
   useFocusEffect(
-    React.useCallback(() => {
-      // Load theme preference from AsyncStorage
-      AsyncStorage.getItem('isDark').then(val => {
-        if (val !== null) setIsDark(JSON.parse(val));
-      });
+    () => {
       loadHistory();
-    }, [])
+    }
   );
 
   const loadHistory = async () => {
@@ -81,7 +77,7 @@ export default function HistoryScreen() {
               >
                 <Text selectable style={[styles.itemName, { color: theme.text }]}>{item.name}</Text>
                 <Text selectable style={[styles.itemSku, { color: theme.text }]}>SKU: {item.sku}</Text>
-                <Text selectable style={[styles.itemPrice, { color: theme.price }]}>{item.price}</Text>
+                <Text selectable style={[styles.itemPrice, { color: '#C00' }]}>{item.price}</Text>
                 <Text selectable style={[styles.itemDate, { color: theme.text }]}>{new Date(item.date).toLocaleDateString()}</Text>
               </TouchableOpacity>
             ))}
