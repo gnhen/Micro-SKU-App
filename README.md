@@ -1,3 +1,5 @@
+<img src="MicroScraper/assets/images/icon.png" width="200">
+
 # Micro SKU App
 ### Inspired by Micro-C-App, this app aims to give a specific tool to the employees:
 #### The ability to scan barcodes, sku tags, and manufacturer codes to find items.
