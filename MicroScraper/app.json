@@ -12,6 +12,7 @@
       "bundleIdentifier": "com.microscraper.app",
       "buildNumber": "1",
       "supportsTablet": true,
+      "deploymentTarget": "13.4",
       "infoPlist": {
         "NSUserActivityTypes": [
           "com.microscraper.search",
