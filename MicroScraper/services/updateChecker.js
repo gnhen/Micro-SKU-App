@@ -4,8 +4,12 @@ import versionInfo from '../version.json';
 
 // Conditionally import expo-intent-launcher only on Android
 let IntentLauncher;
-if (Platform.OS === 'android') {
-  IntentLauncher = require('expo-intent-launcher');
+try {
+  if (Platform.OS === 'android') {
+    IntentLauncher = require('expo-intent-launcher');
+  }
+} catch (e) {
+  // Module not available on this platform
 }
 
 // Configure your GitHub repo here
