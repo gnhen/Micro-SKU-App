@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { 
   Text, View, TextInput, TouchableOpacity, Modal, ScrollView, 
-  StyleSheet, Switch, StatusBar 
+  StyleSheet, Switch, StatusBar, Platform
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { STORES } from '../../constants';
 import versionInfo from '../../version.json';
+import { checkForUpdates } from '../../services/updateChecker';
 
 export default function SettingsScreen() {
   const [isDark, setIsDark] = useState(false);
@@ -64,6 +65,16 @@ export default function SettingsScreen() {
           {storeId} - {currentStoreName}
         </Text>
       </TouchableOpacity>
+
+      {Platform.OS === 'android' && (
+        <TouchableOpacity 
+          style={[styles.settingRow, { borderBottomColor: theme.border }]} 
+          onPress={checkForUpdates}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>Check for Updates</Text>
+          <Text style={{ color: '#007AFF', fontSize: 16 }}>v{versionInfo.version}</Text>
+        </TouchableOpacity>
+      )}
 
       <Modal visible={modalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalContainer}>
