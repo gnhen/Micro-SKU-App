@@ -31,3 +31,5 @@
    ii. Tap Name of Shortcut
    
    iii. Tap "Add to Home Screen"
+
+<img src="MicroScraper/assets/images/mc-sku-app.gif" width="300">
