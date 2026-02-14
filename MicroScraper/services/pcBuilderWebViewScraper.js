@@ -8,8 +8,10 @@ const componentCache = {};
 
 /**
  * Category to Microcenter URL parameter mapping
+ * Note: Some categories use search (Ntt) instead of N parameter due to Microcenter's category system changes
  */
 const CATEGORY_URL_MAP = {
+  // Core Components
   cpu: { N: '4294966995', name: 'Processors - Desktops' },
   gpu: { N: '4294966937', name: 'Video Cards' },
   motherboard: { N: '4294966996', name: 'Motherboards' },
@@ -18,8 +20,27 @@ const CATEGORY_URL_MAP = {
   psu: { N: '4294966654', name: 'Power Supplies' },
   case: { N: '4294964318', name: 'Computer Cases' },
   cpuCooler: { N: '4294966927', name: 'CPU Cooling' },
-  fans: { N: '4294966926', name: 'Case Fans' },
+  // Software (using search)
   os: { N: '4294967276', name: 'Operating Systems' },
+  antivirus: { useSearch: true, searchTerm: 'antivirus software', name: 'Antivirus Software' },
+  office: { useSearch: true, searchTerm: 'microsoft office', name: 'Office Software' },
+  // Peripherals
+  keyboard: { N: '4294966800', name: 'Wired & Wireless Keyboards' },
+  mouse: { N: '4294966799', name: 'Wired & Wireless Mice' },
+  mousePad: { useSearch: true, searchTerm: 'gaming mouse pad', name: 'Gaming Mouse Pads' },
+  speakers: { useSearch: true, searchTerm: 'computer speakers', name: 'Computer Speakers' },
+  headset: { N: '4294853406', name: 'Gaming Headsets' },
+  monitor: { N: '4294966896', name: 'Monitors' },
+  videoCapture: { useSearch: true, searchTerm: 'video capture card', name: 'Capture Cards' },
+  opticalDrive: { useSearch: true, searchTerm: 'internal optical drive dvd blu-ray', name: 'Optical Drives' },
+  router: { N: '4294966869', name: 'Wireless Routers' },
+  printer: { useSearch: true, searchTerm: 'printer', name: 'Printers' },
+  // Accessories
+  fans: { N: '4294966926', name: 'Case Fans' },
+  lighting: { useSearch: true, searchTerm: 'rgb led case lighting', name: 'RGB Case Lighting' },
+  cables: { useSearch: true, searchTerm: 'computer cables adapters', name: 'Computer Cables' },
+  ups: { useSearch: true, searchTerm: 'ups battery backup', name: 'UPS Battery Backup' },
+  usb: { useSearch: true, searchTerm: 'usb flash drive', name: 'USB Flash Drives' },
 };
 
 /**
@@ -32,6 +53,13 @@ export function getCategoryURL(category, storeId = '071') {
     return null;
   }
   
+  // Use search query if specified (for categories where N parameter doesn't work reliably)
+  if (categoryData.useSearch && categoryData.searchTerm) {
+    const encodedSearch = encodeURIComponent(categoryData.searchTerm);
+    return `https://www.microcenter.com/search/search_results.aspx?Ntt=${encodedSearch}&myStore=true&storeid=${storeId}`;
+  }
+  
+  // Use N parameter for traditional category browsing
   return `https://www.microcenter.com/search/search_results.aspx?N=${categoryData.N}&myStore=true&storeid=${storeId}`;
 }
 
@@ -288,20 +316,56 @@ export function getCachedComponents(category) {
 }
 
 /**
- * Get list of available categories
+ * Get list of available categories organized by sections
  */
 export function getCategories() {
   return [
-    { id: 'cpu', name: 'cpu', display_name: 'CPU', icon: 'cpu-chip' },
-    { id: 'gpu', name: 'gpu', display_name: 'GPU', icon: 'layers' },
-    { id: 'motherboard', name: 'motherboard', display_name: 'Motherboard', icon: 'grid' },
-    { id: 'ram', name: 'ram', display_name: 'RAM', icon: 'memory' },
-    { id: 'storage', name: 'storage', display_name: 'Storage', icon: 'save' },
-    { id: 'psu', name: 'psu', display_name: 'Power Supply', icon: 'flash' },
-    { id: 'case', name: 'case', display_name: 'Case', icon: 'cube' },
-    { id: 'cpuCooler', name: 'cpuCooler', display_name: 'CPU Cooler', icon: 'snow' },
-    { id: 'fans', name: 'fans', display_name: 'Case Fans', icon: 'sync' },
-    { id: 'os', name: 'os', display_name: 'Operating System', icon: 'desktop' },
+    {
+      section: 'Core Components',
+      categories: [
+        { id: 'cpu', name: 'cpu', display_name: 'CPU', icon: 'cpu-chip' },
+        { id: 'gpu', name: 'gpu', display_name: 'GPU', icon: 'layers' },
+        { id: 'motherboard', name: 'motherboard', display_name: 'Motherboard', icon: 'grid' },
+        { id: 'ram', name: 'ram', display_name: 'RAM', icon: 'memory' },
+        { id: 'storage', name: 'storage', display_name: 'Storage', icon: 'save' },
+        { id: 'psu', name: 'psu', display_name: 'Power Supply', icon: 'flash' },
+        { id: 'case', name: 'case', display_name: 'Case', icon: 'cube' },
+        { id: 'cpuCooler', name: 'cpuCooler', display_name: 'CPU Cooler', icon: 'snow' },
+      ],
+    },
+    {
+      section: 'Software',
+      categories: [
+        { id: 'os', name: 'os', display_name: 'Operating System', icon: 'desktop' },
+        { id: 'antivirus', name: 'antivirus', display_name: 'Antivirus Software', icon: 'shield' },
+        { id: 'office', name: 'office', display_name: 'Office Suites', icon: 'document-text' },
+      ],
+    },
+    {
+      section: 'Peripherals',
+      categories: [
+        { id: 'keyboard', name: 'keyboard', display_name: 'Keyboard', icon: 'keypad' },
+        { id: 'mouse', name: 'mouse', display_name: 'Mouse', icon: 'hand-left' },
+        { id: 'mousePad', name: 'mousePad', display_name: 'Mouse Pad', icon: 'tablet-landscape' },
+        { id: 'speakers', name: 'speakers', display_name: 'Speakers', icon: 'volume-high' },
+        { id: 'headset', name: 'headset', display_name: 'Headset', icon: 'headset' },
+        { id: 'monitor', name: 'monitor', display_name: 'Monitor', icon: 'tv' },
+        { id: 'videoCapture', name: 'videoCapture', display_name: 'Video Capture', icon: 'videocam' },
+        { id: 'opticalDrive', name: 'opticalDrive', display_name: 'Optical Drive', icon: 'disc' },
+        { id: 'router', name: 'router', display_name: 'Wireless Router', icon: 'wifi' },
+        { id: 'printer', name: 'printer', display_name: 'Printer', icon: 'print' },
+      ],
+    },
+    {
+      section: 'Accessories',
+      categories: [
+        { id: 'fans', name: 'fans', display_name: 'Case Fans', icon: 'sync' },
+        { id: 'lighting', name: 'lighting', display_name: 'Case Lighting', icon: 'bulb' },
+        { id: 'cables', name: 'cables', display_name: 'Cables & Adapters', icon: 'git-branch' },
+        { id: 'ups', name: 'ups', display_name: 'Surge & UPS', icon: 'battery-charging' },
+        { id: 'usb', name: 'usb', display_name: 'USB Flash Drives', icon: 'hardware-chip' },
+      ],
+    },
   ];
 }
 

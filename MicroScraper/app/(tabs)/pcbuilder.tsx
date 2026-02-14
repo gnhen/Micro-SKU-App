@@ -48,6 +48,7 @@ export default function PCBuilderScreen() {
   const [storeId, setStoreId] = useState('071');
   const [loadingComponents, setLoadingComponents] = useState(false);
   const [scrapingCategory, setScrapingCategory] = useState(null);
+  const [expandedSections, setExpandedSections] = useState({});
   const webViewRef = useRef(null);
 
   useEffect(() => {
@@ -65,6 +66,13 @@ export default function PCBuilderScreen() {
       // Get categories from scraper
       const cats = getCategories();
       setCategories(cats);
+      
+      // Initialize all sections as expanded
+      const initialExpanded = {};
+      cats.forEach(section => {
+        initialExpanded[section.section] = true;
+      });
+      setExpandedSections(initialExpanded);
       
       // Load store ID from settings
       const savedStoreId = await AsyncStorage.getItem('storeId');
@@ -296,6 +304,13 @@ export default function PCBuilderScreen() {
     return currentBuild?.components?.find(c => c.category_name === categoryName);
   };
 
+  const toggleSection = (sectionName) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [sectionName]: !prev[sectionName]
+    }));
+  };
+
   if (loading) {
     return (
       <ThemedView style={styles.container}>
@@ -319,13 +334,22 @@ export default function PCBuilderScreen() {
             <Text style={[styles.headerButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>New Build</Text>
           </TouchableOpacity>
           {currentBuildId && (
-            <TouchableOpacity
-              style={[styles.headerButton, { backgroundColor: colors.tint }]}
-              onPress={() => setShowBundlesModal(true)}
-            >
-              <Ionicons name="albums" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
-              <Text style={[styles.headerButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Bundles</Text>
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity
+                style={[styles.headerButton, { backgroundColor: colors.tint }]}
+                onPress={() => setShowBundlesModal(true)}
+              >
+                <Ionicons name="albums" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
+                <Text style={[styles.headerButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Bundles</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.headerButton, { backgroundColor: colors.tint }]}
+                onPress={() => Alert.alert('Share', 'Share functionality coming soon!')}
+              >
+                <Ionicons name="share-social" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
+                <Text style={[styles.headerButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Share</Text>
+              </TouchableOpacity>
+            </>
           )}
         </View>
       </ThemedView>
@@ -393,13 +417,28 @@ export default function PCBuilderScreen() {
           </View>
 
           {/* Component Categories */}
-          {categories.map((category) => {
-            const component = getBuildComponentForCategory(category.name);
-            return (
-              <View
-                key={category.id}
-                style={[styles.categoryCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+          {categories.map((section) => (
+            <View key={section.section}>
+              <TouchableOpacity 
+                style={styles.sectionHeader}
+                onPress={() => toggleSection(section.section)}
               >
+                <ThemedText type="subtitle" style={styles.sectionTitle}>
+                  {section.section}
+                </ThemedText>
+                <Ionicons 
+                  name={expandedSections[section.section] ? "chevron-down" : "chevron-forward"} 
+                  size={24} 
+                  color={colors.icon} 
+                />
+              </TouchableOpacity>
+              {expandedSections[section.section] && section.categories.map((category) => {
+                const component = getBuildComponentForCategory(category.name);
+                return (
+                  <View
+                    key={category.id}
+                    style={[styles.categoryCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  >
                 <View style={styles.categoryHeader}>
                   <View style={styles.categoryTitleRow}>
                     <ThemedText type="defaultSemiBold">{category.display_name}</ThemedText>
@@ -446,6 +485,8 @@ export default function PCBuilderScreen() {
               </View>
             );
           })}
+            </View>
+          ))}
         </ScrollView>
       ) : (
         <View style={[styles.emptyState, { backgroundColor: colors.background }]}>
@@ -739,6 +780,18 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 12,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+    marginBottom: 8,
+    marginHorizontal: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
   },
   categoryCard: {
     padding: 16,
