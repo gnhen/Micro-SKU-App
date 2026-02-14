@@ -24,6 +24,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="pcbuilder"
+        options={{
+          title: 'PC Builder',
+          tabBarIcon: ({ color }) => <Ionicons name="hardware-chip" size={28} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="history"
         options={{
           title: 'History',

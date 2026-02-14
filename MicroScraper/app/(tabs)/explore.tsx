@@ -8,17 +8,17 @@ import { useFocusEffect } from '@react-navigation/native';
 import { STORES } from '../../constants';
 import versionInfo from '../../version.json';
 import { checkForUpdates } from '../../services/updateChecker';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/theme';
 
 export default function SettingsScreen() {
-  const [isDark, setIsDark] = useState(false);
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
   const [storeId, setStoreId] = useState('071');
   const [modalVisible, setModalVisible] = useState(false);
 
   useFocusEffect(
     React.useCallback(() => {
-      AsyncStorage.getItem('isDark').then(val => {
-        if (val !== null) setIsDark(JSON.parse(val));
-      });
       AsyncStorage.getItem('storeId').then(id => { 
         if (id) setStoreId(id); 
       });
@@ -26,16 +26,10 @@ export default function SettingsScreen() {
   );
 
   const theme = {
-    bg: isDark ? '#1a1a1a' : '#ffffff',
-    text: isDark ? '#ffffff' : '#000000',
-    card: isDark ? '#333333' : '#f9f9f9',
-    border: isDark ? '#444444' : '#eeeeee',
-  };
-
-  const toggleTheme = () => {
-    const newVal = !isDark;
-    setIsDark(newVal);
-    AsyncStorage.setItem('isDark', JSON.stringify(newVal));
+    bg: colors.background,
+    text: colors.text,
+    card: colors.card,
+    border: colors.border,
   };
 
   const handleStoreSelect = (id) => {
@@ -48,12 +42,12 @@ export default function SettingsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
       <Text style={[styles.header, { color: theme.text }]}>Settings</Text>
 
       <View style={[styles.settingRow, { borderBottomColor: theme.border }]}>
-        <Text style={[styles.label, { color: theme.text }]}>Dark Mode</Text>
-        <Switch value={isDark} onValueChange={toggleTheme} />
+        <Text style={[styles.label, { color: theme.text }]}>Theme</Text>
+        <Text style={{ color: theme.text, fontSize: 16 }}>System ({colorScheme === 'dark' ? 'Dark' : 'Light'})</Text>
       </View>
 
       <TouchableOpacity 
@@ -61,7 +55,7 @@ export default function SettingsScreen() {
         onPress={() => setModalVisible(true)}
       >
         <Text style={[styles.label, { color: theme.text }]}>Store Location</Text>
-        <Text style={{ color: '#007AFF', fontSize: 16 }}>
+        <Text style={{ color: '#0173DF', fontSize: 16 }}>
           {storeId} - {currentStoreName}
         </Text>
       </TouchableOpacity>
@@ -72,7 +66,7 @@ export default function SettingsScreen() {
           onPress={checkForUpdates}
         >
           <Text style={[styles.label, { color: theme.text }]}>Check for Updates</Text>
-          <Text style={{ color: '#007AFF', fontSize: 16 }}>v{versionInfo.version}</Text>
+          <Text style={{ color: '#0173DF', fontSize: 16 }}>v{versionInfo.version}</Text>
         </TouchableOpacity>
       )}
 
@@ -120,5 +114,5 @@ const styles = StyleSheet.create({
   modalContent: { margin: 20, borderRadius: 10, padding: 20, maxHeight: '80%' },
   modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
   storeOption: { paddingVertical: 15, borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between' },
-  closeButton: { marginTop: 20, backgroundColor: '#007AFF', padding: 15, borderRadius: 10, alignItems: 'center' },
+  closeButton: { marginTop: 20, backgroundColor: '#0173DF', padding: 15, borderRadius: 10, alignItems: 'center' },
 });

@@ -10,6 +10,10 @@ import { fetchProductBySku } from '../../services/scraper';
 import { useFocusEffect } from '@react-navigation/native';
 import { GestureHandlerRootView, PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/theme';
+import { initDatabase, addComponent } from '@/services/database';
+import { detectComponentCategory, extractComponentSpecs } from '@/services/componentDetector';
 
 // Helper function to process scanned barcode data
 const processBarcodeData = (scannedData) => {
@@ -56,18 +60,21 @@ const processBarcodeData = (scannedData) => {
 };
 
 export default function ScanScreen() {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
   const [sku, setSku] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
-  const [isDark, setIsDark] = useState(false);
   const [storeId, setStoreId] = useState('071');
   const [expandedSpecs, setExpandedSpecs] = useState(true);
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [validImageUrls, setValidImageUrls] = useState([]);
   const [scannerEnabled, setScannerEnabled] = useState(true);
+  const [addingToBuilder, setAddingToBuilder] = useState(false);
+  const [detectedCategory, setDetectedCategory] = useState(null);
   
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
@@ -123,9 +130,6 @@ export default function ScanScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
-      AsyncStorage.getItem('isDark').then(val => {
-        if (val !== null) setIsDark(JSON.parse(val));
-      });
       AsyncStorage.getItem('storeId').then(id => {
         if (id) setStoreId(id);
       });
@@ -186,12 +190,12 @@ export default function ScanScreen() {
   }, [scanning]);
 
   const theme = {
-    bg: isDark ? '#1a1a1a' : '#ffffff',
-    text: isDark ? '#ffffff' : '#000000',
-    card: isDark ? '#333333' : '#f9f9f9',
-    border: isDark ? '#444444' : '#eeeeee',
-    inputBg: isDark ? '#2a2a2a' : '#ffffff',
-    primary: '#007AFF',
+    bg: colors.background,
+    text: colors.text,
+    card: colors.card,
+    border: colors.border,
+    inputBg: colors.background,
+    primary: colors.tint,
   };
 
   const addToHistory = async (productData) => {
@@ -213,6 +217,87 @@ export default function ScanScreen() {
       await AsyncStorage.setItem('searchHistory', JSON.stringify(history));
     } catch (e) {
       console.error("History Save Error", e);
+    }
+  };
+
+  const handleAddToPCBuilder = async () => {
+    if (!data) return;
+
+    try {
+      setAddingToBuilder(true);
+
+      // Initialize database
+      await initDatabase();
+
+      // Detect component category
+      const specsArray = data.specs || [];
+      const category = detectComponentCategory(data.name, specsArray);
+
+      if (!category) {
+        Alert.alert(
+          'Not a PC Component',
+          'This product doesn\'t appear to be a PC component. Only CPUs, GPUs, RAM, motherboards, storage, PSUs, cases, and coolers can be added to PC Builder.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      setDetectedCategory(category);
+
+      // Extract specs for this category
+      const extractedSpecs = extractComponentSpecs(category, specsArray, data.name);
+
+      // Determine price
+      const price = data.sale_price || 
+                   (data.price ? parseFloat(data.price.replace(/[$,]/g, '')) : null);
+      const salePrice = data.sale_price && data.price !== data.sale_price ? 
+                       parseFloat(data.sale_price.replace(/[$,]/g, '')) : null;
+
+      // Add component to database
+      const componentData = {
+        sku: data.sku || sku,
+        name: data.name,
+        category,
+        brand: data.brand || null,
+        price: price,
+        sale_price: salePrice,
+        image_url: validImageUrls?.[0] || data.imageUrl || null,
+        url: data.url || null,
+        specs: extractedSpecs,
+      };
+
+      await addComponent(componentData);
+
+      // Show success with category info
+      const categoryNames = {
+        cpu: 'CPU',
+        motherboard: 'Motherboard',
+        ram: 'RAM',
+        gpu: 'Graphics Card',
+        storage: 'Storage',
+        psu: 'Power Supply',
+        case: 'Case',
+        cooler: 'CPU Cooler',
+        case_fans: 'Case Fans',
+        os: 'Operating System',
+      };
+
+      Alert.alert(
+        'Added to PC Builder!',
+        `${data.name}\n\nCategory: ${categoryNames[category] || category}\n\nYou can now find this component in the PC Builder tab.`,
+        [{ text: 'OK' }]
+      );
+
+    } catch (error) {
+      console.error('Error adding to PC Builder:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to add component to PC Builder. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setAddingToBuilder(false);
+      setDetectedCategory(null);
     }
   };
 
@@ -396,7 +481,7 @@ export default function ScanScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
@@ -554,6 +639,18 @@ export default function ScanScreen() {
               <Text style={styles.openPageButtonText}>Open Product Page</Text>
             </TouchableOpacity>
           )}
+
+          {/* Add to PC Builder Button */}
+          <TouchableOpacity 
+            style={[styles.addToBuilderButton, { backgroundColor: colors.tint, opacity: addingToBuilder ? 0.6 : 1 }]} 
+            onPress={handleAddToPCBuilder}
+            disabled={addingToBuilder}
+          >
+            <Ionicons name="hardware-chip" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
+            <Text style={[styles.addToBuilderButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>
+              {addingToBuilder ? 'Adding...' : '+ Add to PC Builder'}
+            </Text>
+          </TouchableOpacity>
         </View>
       )}
       </ScrollView>
@@ -616,8 +713,8 @@ const styles = StyleSheet.create({
   searchWrapper: { marginBottom: 20, alignItems: 'center' },
   searchBox: { flexDirection: 'row', marginBottom: 15, gap: 10, width: '100%', maxWidth: 400 },
   input: { flex: 1, borderWidth: 1, padding: 12, borderRadius: 8, fontSize: 16, borderColor: '#ccc' },
-  scanButton: { backgroundColor: '#007AFF', padding: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center', width: 50 },
-  button: { backgroundColor: '#007AFF', padding: 15, borderRadius: 8, alignItems: 'center' },
+  scanButton: { backgroundColor: '#0173DF', padding: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center', width: 50 },
+  button: { backgroundColor: '#0173DF', padding: 15, borderRadius: 8, alignItems: 'center' },
   buttonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   errorCard: { marginTop: 20, padding: 20, borderWidth: 2, borderRadius: 8, backgroundColor: '#FFF5F5' },
   errorText: { fontSize: 16, textAlign: 'center', lineHeight: 24 },
@@ -642,8 +739,10 @@ const styles = StyleSheet.create({
   sectionHeader: { fontWeight: 'bold', fontSize: 16 },
   specsContainer: { maxHeight: 300, marginTop: 5 },
   specText: { marginLeft: 10, marginBottom: 6, fontSize: 13 },
-  openPageButton: { backgroundColor: '#007AFF', padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 15, marginBottom: 10 },
+  openPageButton: { backgroundColor: '#0173DF', padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 15, marginBottom: 10 },
   openPageButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  addToBuilderButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 15, borderRadius: 8, marginBottom: 10 },
+  addToBuilderButtonText: { fontWeight: 'bold', fontSize: 16 },
   cancelScanBtn: { position: 'absolute', bottom: 50, alignSelf: 'center', backgroundColor: 'red', padding: 15, borderRadius: 30 },
   fullScreenContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.98)', justifyContent: 'center', alignItems: 'center' },
   fullScreenTouchable: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' },

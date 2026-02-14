@@ -1,19 +1,21 @@
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import React, { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
+import { Colors } from '@/constants/theme';
 
 export default function HistoryScreen() {
   const colorScheme = useColorScheme();
   const router = useRouter();
-  const isDark = colorScheme === 'dark';
+  const colors = Colors[colorScheme ?? 'light'];
   const theme = {
-    bg: isDark ? '#000' : '#fff',
-    text: isDark ? '#fff' : '#000',
-    border: isDark ? '#333' : '#ccc',
-    cardBg: isDark ? '#111' : '#f9f9f9',
+    bg: colors.background,
+    text: colors.text,
+    border: colors.border,
+    cardBg: colors.card,
   };
 
   const [history, setHistory] = useState<any[]>([]);
@@ -56,13 +58,13 @@ export default function HistoryScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={[styles.header, { color: theme.text }]}>Search History</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
+      <ScrollView contentContainerStyle={[styles.scrollContent, { backgroundColor: colors.background }]}>
+        <Text style={[styles.header, { color: colors.text }]}>Search History</Text>
         
         {history.length === 0 ? (
-          <Text style={[styles.emptyText, { color: theme.text }]}>No search history yet</Text>
+          <Text style={[styles.emptyText, { color: colors.text }]}>No search history yet</Text>
         ) : (
           <>
             <TouchableOpacity style={styles.clearButton} onPress={clearHistory}>
@@ -72,24 +74,24 @@ export default function HistoryScreen() {
             {history.map((item, index) => (
               <TouchableOpacity 
                 key={index} 
-                style={[styles.historyItem, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
+                style={[styles.historyItem, { backgroundColor: colors.card, borderColor: colors.border }]}
                 onPress={() => handleHistoryItemPress(item.sku)}
               >
-                <Text selectable style={[styles.itemName, { color: theme.text }]}>{item.name}</Text>
-                <Text selectable style={[styles.itemSku, { color: theme.text }]}>SKU: {item.sku}</Text>
+                <Text selectable style={[styles.itemName, { color: colors.text }]}>{item.name}</Text>
+                <Text selectable style={[styles.itemSku, { color: colors.text }]}>SKU: {item.sku}</Text>
                 <Text selectable style={[styles.itemPrice, { color: '#C00' }]}>{item.price}</Text>
-                <Text selectable style={[styles.itemDate, { color: theme.text }]}>{new Date(item.date).toLocaleDateString()}</Text>
+                <Text selectable style={[styles.itemDate, { color: colors.text }]}>{new Date(item.date).toLocaleDateString()}</Text>
               </TouchableOpacity>
             ))}
           </>
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 50 },
+  container: { flex: 1 },
   scrollContent: { padding: 20 },
   header: { fontSize: 24, fontWeight: 'bold', marginBottom: 20 },
   emptyText: { fontSize: 16, textAlign: 'center', marginTop: 40 },
