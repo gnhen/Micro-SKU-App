@@ -641,16 +641,7 @@ export default function ScanScreen() {
           )}
 
           {/* Add to PC Builder Button */}
-          <TouchableOpacity 
-            style={[styles.addToBuilderButton, { backgroundColor: colors.tint, opacity: addingToBuilder ? 0.6 : 1 }]} 
-            onPress={handleAddToPCBuilder}
-            disabled={addingToBuilder}
-          >
-            <Ionicons name="hardware-chip" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
-            <Text style={[styles.addToBuilderButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>
-              {addingToBuilder ? 'Adding...' : '+ Add to PC Builder'}
-            </Text>
-          </TouchableOpacity>
+          
         </View>
       )}
       </ScrollView>
