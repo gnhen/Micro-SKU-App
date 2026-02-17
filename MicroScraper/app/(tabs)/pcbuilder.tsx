@@ -20,6 +20,8 @@ import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import {
   getCategories,
   getCategoryURL,
@@ -47,7 +49,11 @@ export default function PCBuilderScreen() {
   const [loadingComponents, setLoadingComponents] = useState(false);
   const [scrapingCategory, setScrapingCategory] = useState(null);
   const [expandedSections, setExpandedSections] = useState({});
+  const [showSkuModal, setShowSkuModal] = useState(false);
+  const [manualSku, setManualSku] = useState('');
+  const [scrapingSku, setScrapingSku] = useState(null);
   const webViewRef = useRef(null);
+  const skuWebViewRef = useRef(null);
 
   useEffect(() => {
     initializeData();
@@ -71,6 +77,9 @@ export default function PCBuilderScreen() {
         initialExpanded[section.section] = true;
       });
       setExpandedSections(initialExpanded);
+      
+      // Clear cache to get fresh data with updated brand logic
+      clearCache();
       
       // Load store ID from settings
       const savedStoreId = await AsyncStorage.getItem('storeId');
@@ -106,13 +115,17 @@ export default function PCBuilderScreen() {
         // Use bundle prices if applied, otherwise use regular prices
         const totalPrice = build.components?.reduce((sum, c) => {
           const price = c.bundlePrice || c.sale_price || c.price || 0;
-          return sum + price;
+          // Handle both numeric and string prices (like 'N/A')
+          const numericPrice = typeof price === 'number' ? price : 0;
+          return sum + numericPrice;
         }, 0) || 0;
         
         // Calculate original price for comparison
         const originalTotalPrice = build.components?.reduce((sum, c) => {
           const price = c.originalPrice || c.sale_price || c.price || 0;
-          return sum + price;
+          // Handle both numeric and string prices (like 'N/A')
+          const numericPrice = typeof price === 'number' ? price : 0;
+          return sum + numericPrice;
         }, 0) || 0;
         
         setCurrentBuild({
@@ -206,6 +219,33 @@ export default function PCBuilderScreen() {
     setScrapingCategory(category.id);
   };
 
+  const handleAddManualSku = async () => {
+    if (!manualSku.trim() || !currentBuildId || !selectedCategory) {
+      Alert.alert('Invalid SKU', 'Please enter a valid SKU number.');
+      return;
+    }
+
+    // Add a temporary loading component
+    const tempComponent = {
+      sku: manualSku.trim(),
+      name: 'Loading...',
+      category_name: selectedCategory.name,
+      category_display: selectedCategory.display_name,
+      price: 'Loading...',
+      image: null,
+      isLoading: true,
+    };
+    
+    await handleAddComponent(tempComponent);
+    
+    // Start scraping by searching for the SKU
+    setShowSkuModal(false);
+    setScrapingSku({
+      sku: manualSku.trim(),
+      category: selectedCategory
+    });
+  };
+
   const handleAddComponent = async (component) => {
     try {
       const savedBuilds = await AsyncStorage.getItem('pcBuilds');
@@ -251,38 +291,42 @@ export default function PCBuilderScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: async () => {
-            try {
-              const savedBuilds = await AsyncStorage.getItem('pcBuilds');
-              const allBuilds = savedBuilds ? JSON.parse(savedBuilds) : [];
-              const buildIndex = allBuilds.findIndex(b => b.id === currentBuildId);
-              
-              if (buildIndex !== -1) {
-                if (sku) {
-                  // Remove specific component by SKU (for multiple items)
-                  const componentIndex = allBuilds[buildIndex].components?.findIndex(
-                    c => c.category_name === categoryName && c.sku === sku
-                  );
-                  if (componentIndex !== -1) {
-                    allBuilds[buildIndex].components.splice(componentIndex, 1);
-                  }
-                } else {
-                  // Remove all components in this category (for single items)
-                  allBuilds[buildIndex].components = allBuilds[buildIndex].components?.filter(
-                    c => c.category_name !== categoryName
-                  ) || [];
-                }
-                
-                await AsyncStorage.setItem('pcBuilds', JSON.stringify(allBuilds));
-                await loadCurrentBuild();
-              }
-            } catch (error) {
-              console.error('Error removing component:', error);
-              Alert.alert('Error', 'Failed to remove component');
-            }
+            await removeComponent(categoryName, sku);
           },
         },
       ]
     );
+  };
+
+  const removeComponent = async (categoryName, sku = null) => {
+    try {
+      const savedBuilds = await AsyncStorage.getItem('pcBuilds');
+      const allBuilds = savedBuilds ? JSON.parse(savedBuilds) : [];
+      const buildIndex = allBuilds.findIndex(b => b.id === currentBuildId);
+      
+      if (buildIndex !== -1) {
+        if (sku) {
+          // Remove specific component by SKU (for multiple items)
+          const componentIndex = allBuilds[buildIndex].components?.findIndex(
+            c => c.category_name === categoryName && c.sku === sku
+          );
+          if (componentIndex !== -1) {
+            allBuilds[buildIndex].components.splice(componentIndex, 1);
+          }
+        } else {
+          // Remove all components in this category (for single items)
+          allBuilds[buildIndex].components = allBuilds[buildIndex].components?.filter(
+            c => c.category_name !== categoryName
+          ) || [];
+        }
+        
+        await AsyncStorage.setItem('pcBuilds', JSON.stringify(allBuilds));
+        await loadCurrentBuild();
+      }
+    } catch (error) {
+      console.error('Error removing component:', error);
+      Alert.alert('Error', 'Failed to remove component');
+    }
   };
 
   const getBuildComponentForCategory = (categoryName) => {
@@ -317,6 +361,206 @@ export default function PCBuilderScreen() {
         });
       }, 100);
     });
+  };
+
+  const generatePDF = async () => {
+    if (!currentBuild || !currentBuild.components || currentBuild.components.length === 0) {
+      Alert.alert('Empty Build', 'Add components to your build before generating a PDF.');
+      return;
+    }
+
+    try {
+      // Store information mapping
+      const storeInfo = {
+        '025': { name: 'Microcenter - Westmont, IL', taxRate: 0.0925 },
+        '041': { name: 'Microcenter - Marietta, GA', taxRate: 0.07 },
+        '045': { name: 'Microcenter - St. Louis Park, MN', taxRate: 0.07875 },
+        '051': { name: 'Microcenter - Mayfield Heights, OH', taxRate: 0.08 },
+        '055': { name: 'Microcenter - Madison Heights, MI', taxRate: 0.06 },
+        '061': { name: 'Microcenter - St. Davids, PA', taxRate: 0.06 },
+        '065': { name: 'Microcenter - Duluth, GA', taxRate: 0.07 },
+        '071': { name: 'Microcenter - Sharonville, OH', taxRate: 0.0725 },
+        '075': { name: 'Microcenter - North Jersey, NJ', taxRate: 0.06625 },
+        '081': { name: 'Microcenter - Fairfax, VA', taxRate: 0.06 },
+        '085': { name: 'Microcenter - Rockville, MD', taxRate: 0.06 },
+        '095': { name: 'Microcenter - Brentwood, MO', taxRate: 0.09238 },
+        '101': { name: 'Microcenter - Tustin, CA', taxRate: 0.0775 },
+        '105': { name: 'Microcenter - Yonkers, NY', taxRate: 0.08375 },
+        '115': { name: 'Microcenter - Brooklyn, NY', taxRate: 0.08875 },
+        '121': { name: 'Microcenter - Cambridge, MA', taxRate: 0.0625 },
+        '125': { name: 'Microcenter - Parkville, MD', taxRate: 0.06 },
+        '131': { name: 'Microcenter - Dallas, TX', taxRate: 0.0825 },
+        '141': { name: 'Microcenter - Columbus, OH', taxRate: 0.075 },
+        '145': { name: 'Microcenter - Flushing, NY', taxRate: 0.08875 },
+        '151': { name: 'Microcenter - Chicago, IL', taxRate: 0.1025 },
+        '155': { name: 'Microcenter - Houston, TX', taxRate: 0.0825 },
+        '165': { name: 'Microcenter - Indianapolis, IN', taxRate: 0.07 },
+        '171': { name: 'Microcenter - Westbury, NY', taxRate: 0.08625 },
+        '175': { name: 'Microcenter - Charlotte, NC', taxRate: 0.0725 },
+        '181': { name: 'Microcenter - Denver, CO', taxRate: 0.081 },
+        '185': { name: 'Microcenter - Miami, FL', taxRate: 0.07 },
+        '191': { name: 'Microcenter - Overland Park, KS', taxRate: 0.09125 },
+        '195': { name: 'Microcenter - Santa Clara, CA', taxRate: 0.09125 },
+        '205': { name: 'Microcenter - Phoenix, AZ', taxRate: 0.083 },
+      };
+
+      const currentStore = storeInfo[storeId] || { name: `Store ${storeId}`, taxRate: 0.07 };
+
+      // Calculate total price
+      const totalPrice = currentBuild.components.reduce((sum, component) => {
+        const priceStr = component.price ? String(component.price) : '0';
+        const price = parseFloat(priceStr.replace(/[$,]/g, '') || '0');
+        return sum + price;
+      }, 0);
+
+      const estimatedTax = totalPrice * currentStore.taxRate;
+      const totalWithTax = totalPrice + estimatedTax;
+
+      // Build HTML for the PDF
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              padding: 20px;
+              margin: 0;
+            }
+            h1 {
+              color: #333;
+              border-bottom: 3px solid #0066cc;
+              padding-bottom: 10px;
+              margin-bottom: 20px;
+            }
+            h2 {
+              color: #555;
+              margin-top: 20px;
+              font-size: 18px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+            }
+            th {
+              background-color: #0066cc;
+              color: white;
+              padding: 12px;
+              text-align: left;
+              font-weight: bold;
+            }
+            td {
+              padding: 10px 12px;
+              border-bottom: 1px solid #ddd;
+              vertical-align: middle;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .product-image {
+              width: 60px;
+              height: 60px;
+              object-fit: contain;
+              display: block;
+            }
+            .subtotal-row {
+              font-weight: bold;
+              background-color: #f5f5f5 !important;
+            }
+            .tax-row {
+              font-style: italic;
+              background-color: #f5f5f5 !important;
+            }
+            .total-row {
+              font-weight: bold;
+              font-size: 18px;
+              background-color: #e6f2ff !important;
+            }
+            .total-row td {
+              padding: 15px 12px;
+              border-top: 2px solid #0066cc;
+            }
+            .footer {
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #ddd;
+              color: #666;
+              font-size: 12px;
+            }
+          </style>
+        </head>
+        <body>
+          <h1>${currentBuild.name}</h1>
+          <p><strong>Store:</strong> ${currentStore.name}</p>
+          <p><strong>Generated:</strong> ${new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          })}</p>
+          
+          <h2>Components</h2>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 80px;">Image</th>
+                <th>Category</th>
+                <th>SKU</th>
+                <th>Name</th>
+                <th style="text-align: right;">Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${currentBuild.components.map(component => `
+                <tr>
+                  <td>
+                    ${component.image ? `<img src="${component.image}" class="product-image" alt="Product" />` : ''}
+                  </td>
+                  <td>${component.category_display || component.category_name}</td>
+                  <td>${component.sku || 'N/A'}</td>
+                  <td>${component.name || 'Unknown Component'}</td>
+                  <td style="text-align: right;">${component.price || '$0.00'}</td>
+                </tr>
+              `).join('')}
+              <tr class="subtotal-row">
+                <td colspan="4" style="text-align: right;">Subtotal:</td>
+                <td style="text-align: right;">$${totalPrice.toFixed(2)}</td>
+              </tr>
+              <tr class="tax-row">
+                <td colspan="4" style="text-align: right;">Estimated Tax (${(currentStore.taxRate * 100).toFixed(2)}%):</td>
+                <td style="text-align: right;">$${estimatedTax.toFixed(2)}</td>
+              </tr>
+              <tr class="total-row">
+                <td colspan="4" style="text-align: right;">Total:</td>
+                <td style="text-align: right;">$${totalWithTax.toFixed(2)}</td>
+              </tr>
+            </tbody>
+          </table>
+          
+          <div class="footer">
+            <p>This build list was generated by the Micro-SKU App.</p>
+            <p>Prices and tax are estimates and may vary. Please verify availability and pricing at your local Microcenter store.</p>
+          </div>
+        </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const { uri } = await Print.printToFileAsync({ html });
+      
+      // Share the PDF
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri);
+      } else {
+        Alert.alert('Success', `PDF saved to: ${uri}`);
+      }
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      Alert.alert('Error', 'Failed to generate PDF. Please try again.');
+    }
   };
 
   if (loading) {
@@ -358,10 +602,10 @@ export default function PCBuilderScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.headerButton, { backgroundColor: colors.tint }]}
-                onPress={() => Alert.alert('Share', 'Share functionality coming soon!')}
+                onPress={generatePDF}
               >
-                <Ionicons name="share-social" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
-                <Text style={[styles.headerButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Share</Text>
+                <Ionicons name="document-text" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
+                <Text style={[styles.headerButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Save PDF</Text>
               </TouchableOpacity>
             </>
           )}
@@ -506,7 +750,7 @@ export default function PCBuilderScreen() {
                             </View>
                           ) : (
                             <ThemedText style={styles.componentPrice}>
-                              ${component.price?.toFixed(2) || 'N/A'}
+                              {typeof component.price === 'number' ? `$${component.price.toFixed(2)}` : (component.price || 'N/A')}
                             </ThemedText>
                           )}
                         </View>
@@ -608,6 +852,18 @@ export default function PCBuilderScreen() {
               <Ionicons name="close" size={28} color={colors.icon} />
             </TouchableOpacity>
           </View>
+          {!loadingComponents && (
+            <TouchableOpacity
+              style={[styles.enterSkuButton, { backgroundColor: colors.tint, marginHorizontal: 16, marginVertical: 12 }]}
+              onPress={() => {
+                setShowComponentModal(false);
+                setTimeout(() => setShowSkuModal(true), 300);
+              }}
+            >
+              <Ionicons name="keypad" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
+              <Text style={[styles.enterSkuButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Enter SKU</Text>
+            </TouchableOpacity>
+          )}
           {loadingComponents ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color={colors.tint} />
@@ -669,6 +925,92 @@ export default function PCBuilderScreen() {
         </SafeAreaView>
       </Modal>
 
+      {/* SKU Input Modal */}
+      <Modal
+        visible={showSkuModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowSkuModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <ThemedText type="subtitle">Enter SKU Number</ThemedText>
+            <ThemedText style={[styles.skuModalSubtext, { color: colors.tabIconDefault, marginTop: 8, marginBottom: 16 }]}>
+              Enter the SKU from the product page or price tag
+            </ThemedText>
+            <TextInput
+              style={[styles.input, { borderColor: colors.border, color: colors.text }]}
+              placeholder="e.g., 123456"
+              placeholderTextColor={colors.tabIconDefault}
+              value={manualSku}
+              onChangeText={setManualSku}
+              keyboardType="numeric"
+              autoFocus
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: colors.border }]}
+                onPress={() => {
+                  setShowSkuModal(false);
+                  setManualSku('');
+                }}
+              >
+                <Text style={[styles.modalButtonText, { color: colors.text }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: colors.tint }]}
+                onPress={handleAddManualSku}
+              >
+                <Text style={[styles.modalButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Add</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* SKU Input Modal */}
+      <Modal
+        visible={showSkuModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowSkuModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <ThemedText type="subtitle">Enter SKU Number</ThemedText>
+            <ThemedText style={[styles.skuModalSubtext, { color: colors.tabIconDefault, marginTop: 8, marginBottom: 16 }]}>
+              Enter the SKU from the product page or price tag
+            </ThemedText>
+            <TextInput
+              style={[styles.input, { borderColor: colors.border, color: colors.text }]}
+              placeholder="e.g., 123456"
+              placeholderTextColor={colors.tabIconDefault}
+              value={manualSku}
+              onChangeText={setManualSku}
+              keyboardType="numeric"
+              autoFocus
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: colors.border }]}
+                onPress={() => {
+                  setShowSkuModal(false);
+                  setManualSku('');
+                }}
+              >
+                <Text style={[styles.modalButtonText, { color: colors.text }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: colors.tint }]}
+                onPress={handleAddManualSku}
+              >
+                <Text style={[styles.modalButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Add</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Hidden WebView for scraping */}
       {scrapingCategory && (
         <View style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}>
@@ -691,6 +1033,74 @@ export default function PCBuilderScreen() {
               setLoadingComponents(false);
               setScrapingCategory(null);
               Alert.alert('Error', 'Failed to load components from Microcenter');
+            }}
+          />
+        </View>
+      )}
+
+      {/* Hidden WebView for scraping individual SKU by searching */}
+      {scrapingSku && (
+        <View style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}>
+          <WebView
+            ref={skuWebViewRef}
+            source={{ uri: `https://www.microcenter.com/search/search_results.aspx?Ntt=${scrapingSku.sku}&myStore=true&storeid=${storeId}` }}
+            onLoadEnd={() => {
+              console.log(`[PC Builder SKU] WebView loaded, searching for SKU ${scrapingSku.sku}`);
+              skuWebViewRef.current?.injectJavaScript(getExtractionScript('search'));
+            }}
+            onMessage={(event) => {
+              console.log(`[PC Builder SKU] Received message from WebView`);
+              handleWebViewMessage(event, 'search', async (components) => {
+                console.log(`[PC Builder SKU] Found ${components.length} results for SKU ${scrapingSku.sku}`);
+                
+                // Find the exact SKU match
+                const exactMatch = components.find(c => c.sku === scrapingSku.sku);
+                
+                if (exactMatch) {
+                  console.log(`[PC Builder SKU] Found exact match:`, exactMatch);
+                  // Update the loading component with real data
+                  try {
+                    const savedBuilds = await AsyncStorage.getItem('pcBuilds');
+                    const allBuilds = savedBuilds ? JSON.parse(savedBuilds) : [];
+                    const buildIndex = allBuilds.findIndex(b => b.id === currentBuildId);
+                    
+                    if (buildIndex !== -1) {
+                      // Find and replace the loading component
+                      const componentIndex = allBuilds[buildIndex].components?.findIndex(
+                        c => c.sku === scrapingSku.sku && c.isLoading
+                      );
+                      
+                      if (componentIndex !== -1) {
+                        allBuilds[buildIndex].components[componentIndex] = {
+                          ...exactMatch,
+                          category_name: scrapingSku.category.name,
+                          category_display: scrapingSku.category.display_name,
+                        };
+                        
+                        await AsyncStorage.setItem('pcBuilds', JSON.stringify(allBuilds));
+                        await loadCurrentBuild();
+                        console.log(`[PC Builder SKU] Component updated successfully`);
+                      }
+                    }
+                  } catch (error) {
+                    console.error('[PC Builder SKU] Error updating component:', error);
+                  }
+                } else {
+                  console.log(`[PC Builder SKU] No exact match found for SKU ${scrapingSku.sku}`);
+                  Alert.alert('SKU Not Found', `Could not find product with SKU ${scrapingSku.sku} at this store.`);
+                  // Remove the loading component silently
+                  await removeComponent(scrapingSku.category.name, scrapingSku.sku);
+                }
+                
+                setScrapingSku(null);
+                setManualSku('');
+              });
+            }}
+            onError={(error) => {
+              console.error('[PC Builder SKU] WebView error searching for SKU:', error);
+              Alert.alert('Error', 'Failed to search for product. Please try again.');
+              removeComponent(scrapingSku.category.name, scrapingSku.sku);
+              setScrapingSku(null);
             }}
           />
         </View>
@@ -1132,5 +1542,21 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 16,
+  },
+  enterSkuButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  enterSkuButtonText: {
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  skuModalSubtext: {
+    fontSize: 14,
+    textAlign: 'center',
   },
 });

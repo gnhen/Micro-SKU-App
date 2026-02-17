@@ -99,10 +99,29 @@ export function getExtractionScript(category) {
         let name = null;
         let brand = null;
         
+        // First, try to get brand from data-brand attribute
+        const brandSelectors = [
+          '[data-brand]',
+          'span[data-brand]',
+          'a[data-brand]',
+        ];
+        
+        for (const selector of brandSelectors) {
+          const brandElement = element.querySelector(selector);
+          if (brandElement) {
+            const brandValue = brandElement.getAttribute('data-brand');
+            if (brandValue && brandValue.trim()) {
+              brand = brandValue.trim();
+              break;
+            }
+          }
+        }
+        
         // Try to get full product name with brand
         const nameSelectors = [
           'h2 a[data-name]',
           'a[data-name]',
+          'span[data-name]',
           'h2 a',
           '.product-title',
           '.product_name',
@@ -115,10 +134,12 @@ export function getExtractionScript(category) {
             const fullName = nameElement.getAttribute('data-name') || nameElement.textContent?.trim();
             if (fullName) {
               name = fullName;
-              // Extract brand from the name if present
-              const brandMatch = fullName.match(/^(AMD|Intel|NVIDIA|MSI|ASUS|Gigabyte|ASRock|Corsair|G\.Skill|Samsung|Western Digital|Seagate|EVGA|Cooler Master|NZXT|Thermaltake|be quiet!|Fractal Design|Lian Li|Seasonic|Crucial|Kingston)\s+/i);
-              if (brandMatch) {
-                brand = brandMatch[1];
+              // Extract brand from the name if not already found
+              if (!brand) {
+                const brandMatch = fullName.match(/^(AMD|Intel|NVIDIA|MSI|ASUS|Gigabyte|ASRock|Corsair|G\.Skill|Samsung|Western Digital|Seagate|EVGA|Cooler Master|NZXT|Thermaltake|be quiet!|Fractal Design|Lian Li|Seasonic|Crucial|Kingston)\s+/i);
+                if (brandMatch) {
+                  brand = brandMatch[1];
+                }
               }
               break;
             }
@@ -171,9 +192,19 @@ export function getExtractionScript(category) {
         if (sku && name && name.length > 3 && 
             sku.toLowerCase() !== 'banner' && 
             !name.toLowerCase().includes('banner')) {
+          
+          // Ensure brand is included in the name if not already present
+          let displayName = name;
+          if (brand && !name.toLowerCase().includes(brand.toLowerCase())) {
+            displayName = brand + ' ' + name;
+            console.log('Prepending brand to name:', brand, '+', name, '=', displayName);
+          } else {
+            console.log('Brand already in name or no brand:', name);
+          }
+          
           products.push({
             sku,
-            name,
+            name: displayName,
             brand,
             price,
             image,
