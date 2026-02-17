@@ -39,10 +39,8 @@ export default function PCBuilderScreen() {
   const [categories, setCategories] = useState([]);
   const [showNewBuildModal, setShowNewBuildModal] = useState(false);
   const [showComponentModal, setShowComponentModal] = useState(false);
-  const [showBundlesModal, setShowBundlesModal] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [availableComponents, setAvailableComponents] = useState([]);
-  const [availableBundles, setAvailableBundles] = useState([]);
   const [newBuildName, setNewBuildName] = useState('');
   const [loading, setLoading] = useState(true);
   const [storeId, setStoreId] = useState('071');
@@ -83,8 +81,8 @@ export default function PCBuilderScreen() {
       const allBuilds = savedBuilds ? JSON.parse(savedBuilds) : [];
       setBuilds(allBuilds);
       
-      // Bundles fetching not yet implemented
-      console.log('[PC Builder] Bundles fetching not yet implemented');
+      // Don't auto-load bundles, wait for user to select AMD or Intel
+      // Bundles will be loaded when user clicks a bundle type button
       
       // Select first build if available
       if (allBuilds.length > 0 && !currentBuildId) {
@@ -105,11 +103,23 @@ export default function PCBuilderScreen() {
       const build = allBuilds.find(b => b.id === currentBuildId);
       
       if (build) {
-        // Calculate total price
-        const totalPrice = build.components?.reduce((sum, c) => sum + (c.sale_price || c.price || 0), 0) || 0;
+        // Use bundle prices if applied, otherwise use regular prices
+        const totalPrice = build.components?.reduce((sum, c) => {
+          const price = c.bundlePrice || c.sale_price || c.price || 0;
+          return sum + price;
+        }, 0) || 0;
+        
+        // Calculate original price for comparison
+        const originalTotalPrice = build.components?.reduce((sum, c) => {
+          const price = c.originalPrice || c.sale_price || c.price || 0;
+          return sum + price;
+        }, 0) || 0;
+        
         setCurrentBuild({
           ...build,
           total_price: totalPrice,
+          original_total_price: build.appliedBundle ? originalTotalPrice : null,
+          appliedBundle: build.appliedBundle,
         });
       }
     } catch (error) {
@@ -212,10 +222,12 @@ export default function PCBuilderScreen() {
         category_name: selectedCategory.name,
       };
       
-      // Remove existing component in this category
-      allBuilds[buildIndex].components = allBuilds[buildIndex].components?.filter(
-        c => c.category_name !== selectedCategory.name
-      ) || [];
+      // Only remove existing component if category doesn't allow multiple
+      if (!selectedCategory.allowMultiple) {
+        allBuilds[buildIndex].components = allBuilds[buildIndex].components?.filter(
+          c => c.category_name !== selectedCategory.name
+        ) || [];
+      }
       
       // Add new component
       allBuilds[buildIndex].components.push(componentWithCategory);
@@ -229,7 +241,7 @@ export default function PCBuilderScreen() {
     }
   };
 
-  const handleRemoveComponent = async (categoryName) => {
+  const handleRemoveComponent = async (categoryName, sku = null) => {
     Alert.alert(
       'Remove Component',
       'Remove this component from your build?',
@@ -245,9 +257,20 @@ export default function PCBuilderScreen() {
               const buildIndex = allBuilds.findIndex(b => b.id === currentBuildId);
               
               if (buildIndex !== -1) {
-                allBuilds[buildIndex].components = allBuilds[buildIndex].components?.filter(
-                  c => c.category_name !== categoryName
-                ) || [];
+                if (sku) {
+                  // Remove specific component by SKU (for multiple items)
+                  const componentIndex = allBuilds[buildIndex].components?.findIndex(
+                    c => c.category_name === categoryName && c.sku === sku
+                  );
+                  if (componentIndex !== -1) {
+                    allBuilds[buildIndex].components.splice(componentIndex, 1);
+                  }
+                } else {
+                  // Remove all components in this category (for single items)
+                  allBuilds[buildIndex].components = allBuilds[buildIndex].components?.filter(
+                    c => c.category_name !== categoryName
+                  ) || [];
+                }
                 
                 await AsyncStorage.setItem('pcBuilds', JSON.stringify(allBuilds));
                 await loadCurrentBuild();
@@ -262,46 +285,12 @@ export default function PCBuilderScreen() {
     );
   };
 
-  const handleAddBundle = async (bundle) => {
-    try {
-      const savedBuilds = await AsyncStorage.getItem('pcBuilds');
-      const allBuilds = savedBuilds ? JSON.parse(savedBuilds) : [];
-      const buildIndex = allBuilds.findIndex(b => b.id === currentBuildId);
-      
-      if (buildIndex === -1) {
-        throw new Error('Build not found');
-      }
-      
-      // Add all components from bundle
-      for (const component of bundle.components) {
-        const category = categories.find(c => c.id === component.category_id);
-        if (category) {
-          const componentWithCategory = {
-            ...component,
-            category_name: category.name,
-          };
-          
-          // Remove existing in this category
-          allBuilds[buildIndex].components = allBuilds[buildIndex].components?.filter(
-            c => c.category_name !== category.name
-          ) || [];
-          
-          allBuilds[buildIndex].components.push(componentWithCategory);
-        }
-      }
-      
-      await AsyncStorage.setItem('pcBuilds', JSON.stringify(allBuilds));
-      await loadCurrentBuild();
-      setShowBundlesModal(false);
-      Alert.alert('Success', 'Bundle added to your build!');
-    } catch (error) {
-      console.error('Error adding bundle:', error);
-      Alert.alert('Error', 'Failed to add bundle');
-    }
-  };
-
   const getBuildComponentForCategory = (categoryName) => {
     return currentBuild?.components?.find(c => c.category_name === categoryName);
+  };
+
+  const getBuildComponentsForCategory = (categoryName) => {
+    return currentBuild?.components?.filter(c => c.category_name === categoryName) || [];
   };
 
   const toggleSection = (sectionName) => {
@@ -309,6 +298,25 @@ export default function PCBuilderScreen() {
       ...prev,
       [sectionName]: !prev[sectionName]
     }));
+  };
+
+  // Fetch component details from Microcenter product page
+  const fetchComponentDetails = async (sku) => {
+    return new Promise((resolve) => {
+      // Create a temporary WebView to scrape product details
+      const productUrl = `https://www.microcenter.com/product/${sku}`;
+      console.log('[Component Fetch] Fetching details for:', productUrl);
+      
+      // For now, return a basic structure - in a full implementation,
+      // you'd scrape the product page to get the actual name and image
+      // This would require another hidden WebView
+      setTimeout(() => {
+        resolve({
+          name: `Product ${sku}`,
+          image: null,
+        });
+      }, 100);
+    });
   };
 
   if (loading) {
@@ -320,6 +328,7 @@ export default function PCBuilderScreen() {
   }
 
   return (
+    <>
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <ThemedView style={styles.container}>
         {/* Header */}
@@ -337,7 +346,12 @@ export default function PCBuilderScreen() {
             <>
               <TouchableOpacity
                 style={[styles.headerButton, { backgroundColor: colors.tint }]}
-                onPress={() => setShowBundlesModal(true)}
+                onPress={() => {
+                  Alert.alert(
+                    'Bundles Not Yet Available',
+                    'This feature requires access to the MC Database. If MC gives access, this will be available!'
+                  );
+                }}
               >
                 <Ionicons name="albums" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
                 <Text style={[styles.headerButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Bundles</Text>
@@ -403,16 +417,25 @@ export default function PCBuilderScreen() {
           {/* Build Summary */}
           <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <ThemedText type="subtitle">Total Cost</ThemedText>
-            <ThemedText type="title" style={styles.totalPrice}>
-              ${currentBuild.total_price?.toFixed(2) || '0.00'}
-            </ThemedText>
-            {currentBuild.matchedBundles && currentBuild.matchedBundles.length > 0 && (
-              <View style={[styles.bundleBadge, { backgroundColor: colors.notification }]}>
-                <Ionicons name="pricetag" size={16} color="white" />
-                <Text style={styles.bundleBadgeText}>
-                  Bundle Detected! Save ${currentBuild.matchedBundles[0].savings?.toFixed(2)}
+            {currentBuild.appliedBundle && currentBuild.original_total_price ? (
+              <View>
+                <Text style={[styles.originalTotalPrice, { color: colors.tabIconDefault }]}>
+                  ${currentBuild.original_total_price.toFixed(2)}
                 </Text>
+                <ThemedText type="title" style={styles.totalPrice}>
+                  ${currentBuild.total_price?.toFixed(2) || '0.00'}
+                </ThemedText>
+                <View style={[styles.bundleBadge, { backgroundColor: colors.notification }]}>
+                  <Ionicons name="pricetag" size={16} color="white" />
+                  <Text style={styles.bundleBadgeText}>
+                    {currentBuild.appliedBundle.name} - Save ${currentBuild.appliedBundle.savings?.toFixed(2)}
+                  </Text>
+                </View>
               </View>
+            ) : (
+              <ThemedText type="title" style={styles.totalPrice}>
+                ${currentBuild.total_price?.toFixed(2) || '0.00'}
+              </ThemedText>
             )}
           </View>
 
@@ -433,7 +456,8 @@ export default function PCBuilderScreen() {
                 />
               </TouchableOpacity>
               {expandedSections[section.section] && section.categories.map((category) => {
-                const component = getBuildComponentForCategory(category.name);
+                const components = getBuildComponentsForCategory(category.name);
+                const hasComponents = components.length > 0;
                 return (
                   <View
                     key={category.id}
@@ -445,31 +469,66 @@ export default function PCBuilderScreen() {
                     {category.required === 1 && (
                       <Text style={[styles.requiredBadge, { color: colors.notification }]}>*Required</Text>
                     )}
+                    {category.allowMultiple && hasComponents && (
+                      <Text style={[styles.multipleIndicator, { color: colors.tint }]}>
+                        ({components.length})
+                      </Text>
+                    )}
                   </View>
-                  {component && (
-                    <TouchableOpacity onPress={() => handleRemoveComponent(category.name)}>
-                      <Ionicons name="trash" size={20} color={colors.icon} />
-                    </TouchableOpacity>
-                  )}
                 </View>
 
-                {component ? (
-                  <View style={styles.selectedComponent}>
-                    {component.image && (
-                      <Image 
-                        source={{ uri: component.image }} 
-                        style={styles.selectedComponentImage}
-                        resizeMode="contain"
-                      />
+                {hasComponents ? (
+                  <View style={styles.selectedComponentsContainer}>
+                    {components.map((component, index) => (
+                      <View key={`${component.sku}-${index}`} style={[
+                        styles.selectedComponent,
+                        category.allowMultiple && index > 0 && styles.multipleComponentItem
+                      ]}>
+                        {component.image && (
+                          <Image 
+                            source={{ uri: component.image }} 
+                            style={styles.selectedComponentImage}
+                            resizeMode="contain"
+                          />
+                        )}
+                        <View style={{ flex: 1 }}>
+                          <ThemedText style={styles.componentName} numberOfLines={2}>
+                            {component.name}
+                          </ThemedText>
+                          {component.bundleId && component.originalPrice ? (
+                            <View style={styles.bundlePricingContainer}>
+                              <Text style={[styles.componentOriginalPrice, { color: colors.tabIconDefault }]}>
+                                ${component.originalPrice.toFixed(2)}
+                              </Text>
+                              <ThemedText style={styles.componentBundlePrice}>
+                                ${component.bundlePrice?.toFixed(2) || component.price?.toFixed(2)}
+                              </ThemedText>
+                            </View>
+                          ) : (
+                            <ThemedText style={styles.componentPrice}>
+                              ${component.price?.toFixed(2) || 'N/A'}
+                            </ThemedText>
+                          )}
+                        </View>
+                        <TouchableOpacity 
+                          onPress={() => handleRemoveComponent(category.name, component.sku)}
+                          style={styles.removeComponentButton}
+                        >
+                          <Ionicons name="close-circle" size={20} color={colors.icon} />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                    {category.allowMultiple && (
+                      <TouchableOpacity
+                        style={[styles.addMoreButton, { borderColor: colors.tint }]}
+                        onPress={() => handleSelectComponent(category)}
+                      >
+                        <Ionicons name="add-circle-outline" size={20} color={colors.tint} />
+                        <Text style={[styles.addMoreButtonText, { color: colors.tint }]}>
+                          Add Another {category.display_name}
+                        </Text>
+                      </TouchableOpacity>
                     )}
-                    <View style={{ flex: 1 }}>
-                      <ThemedText style={styles.componentName} numberOfLines={2}>
-                        {component.name}
-                      </ThemedText>
-                      <ThemedText style={styles.componentPrice}>
-                        ${component.price?.toFixed(2) || 'N/A'}
-                      </ThemedText>
-                    </View>
                   </View>
                 ) : (
                   <TouchableOpacity
@@ -610,66 +669,6 @@ export default function PCBuilderScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* Bundles Modal */}
-      <Modal
-        visible={showBundlesModal}
-        animationType="slide"
-        onRequestClose={() => setShowBundlesModal(false)}
-      >
-        <SafeAreaView style={[styles.fullModal, { backgroundColor: colors.background }]}>
-          <View style={[styles.modalHeader, { borderBottomColor: colors.border, paddingTop: 60 }]}>
-            <ThemedText type="subtitle">Bundle & Save</ThemedText>
-            <TouchableOpacity onPress={() => setShowBundlesModal(false)}>
-              <Ionicons name="close" size={28} color={colors.icon} />
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={availableBundles}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={({ item }) => (
-              <View style={[styles.bundleCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <ThemedText type="defaultSemiBold" style={styles.bundleName}>
-                  {item.name}
-                </ThemedText>
-                {item.description && (
-                  <ThemedText style={styles.bundleDescription}>{item.description}</ThemedText>
-                )}
-                <View style={styles.bundlePricing}>
-                  <View>
-                    <Text style={[styles.bundleOriginalPrice, { color: colors.tabIconDefault }]}>
-                      ${item.total_price?.toFixed(2)}
-                    </Text>
-                    <ThemedText type="defaultSemiBold" style={styles.bundlePrice}>
-                      ${item.bundle_price?.toFixed(2)}
-                    </ThemedText>
-                  </View>
-                  <View style={[styles.savingsBadge, { backgroundColor: colors.notification }]}>
-                    <Text style={styles.savingsText}>Save ${item.savings?.toFixed(2)}</Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={[styles.addBundleButton, { backgroundColor: colors.tint, opacity: !currentBuildId ? 0.5 : 1 }]}
-                  onPress={() => handleAddBundle(item)}
-                  disabled={!currentBuildId}
-                >
-                  <Ionicons name="add-circle" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
-                  <Text style={[styles.addBundleButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Add to Build</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            ListEmptyComponent={
-              <View style={styles.emptyList}>
-                <Ionicons name="albums-outline" size={48} color={colors.icon} />
-                <ThemedText style={styles.emptyListText}>No bundles available</ThemedText>
-                <ThemedText style={styles.emptyListSubtext}>
-                  Bundles will appear here once they're added to the database
-                </ThemedText>
-              </View>
-            }
-          />
-        </SafeAreaView>
-      </Modal>
-
       {/* Hidden WebView for scraping */}
       {scrapingCategory && (
         <View style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}>
@@ -698,6 +697,7 @@ export default function PCBuilderScreen() {
       )}
       </ThemedView>
     </SafeAreaView>
+    </>
   );
 }
 
@@ -819,6 +819,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 8,
   },
+  selectedComponentsContainer: {
+    gap: 8,
+  },
+  multipleComponentItem: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  multipleIndicator: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  removeComponentButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  addMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 8,
+    borderStyle: 'dashed',
+  },
+  addMoreButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
   selectedComponentImage: {
     width: 50,
     height: 50,
@@ -832,6 +866,24 @@ const styles = StyleSheet.create({
   componentPrice: {
     fontSize: 18,
     fontWeight: '700',
+  },
+  bundlePricingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  componentOriginalPrice: {
+    fontSize: 14,
+    textDecorationLine: 'line-through',
+  },
+  componentBundlePrice: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  originalTotalPrice: {
+    fontSize: 20,
+    textDecorationLine: 'line-through',
+    marginBottom: 4,
   },
   originalPrice: {
     fontSize: 14,
@@ -984,6 +1036,56 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     borderRadius: 12,
     borderWidth: 1,
+  },
+  bundleImage: {
+    width: '100%',
+    height: 150,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  bundleTypeSelector: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+    gap: 24,
+  },
+  bundleTypeSelectorTitle: {
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  bundleTypeButton: {
+    width: '100%',
+    padding: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  bundleTypeButtonText: {
+    color: '#fff',
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  bundleTypeButtonSubtext: {
+    color: '#fff',
+    fontSize: 16,
+    opacity: 0.9,
+  },
+  bundleTypeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  backButton: {
+    padding: 4,
   },
   bundleName: {
     fontSize: 18,
