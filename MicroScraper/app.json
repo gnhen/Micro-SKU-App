@@ -2,12 +2,12 @@
   "expo": {
     "name": "Micro SKU App",
     "slug": "MicroScraper",
-    "version": "1.0.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "microscraper",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "bundleIdentifier": "com.microscraper.app",
       "buildNumber": "1",
@@ -15,8 +15,6 @@
       "deploymentTarget": "13.4",
       "infoPlist": {
         "NSUserActivityTypes": [
-          "com.microscraper.search",
-          "com.microscraper.scan",
           "com.microscraper.search",
           "com.microscraper.scan"
         ],
