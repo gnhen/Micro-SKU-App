@@ -437,10 +437,27 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
     let originalPrice = null;
     let savings = null;
     
-    const saleMatch = productHtml.match(/<strike><span[^>]*>Original price <\/span>\$([0-9,]+\.?[0-9]*)<\/strike>[^<]*<span[^>]*>Save \$([0-9,]+\.?[0-9]*)<\/span>/i);
+    // Try multiple patterns for sale prices
+    // Pattern 1: Original structure
+    let saleMatch = productHtml.match(/<strike><span[^>]*>Original price <\/span>\$([0-9,]+\.?[0-9]*)<\/strike>[^<]*<span[^>]*>Save \$([0-9,]+\.?[0-9]*)<\/span>/i);
     if (saleMatch) {
       originalPrice = `$${saleMatch[1]}`;
       savings = `$${saleMatch[2]}`;
+    }
+    
+    // Pattern 2: Look for strike tag with price anywhere, then look for savings span separately
+    if (!originalPrice) {
+      const strikeMatch = productHtml.match(/<strike><span[^>]*class=['"]sr-only['"][^>]*>Original price\s*<\/span>\$([0-9,]+\.?[0-9]*)<\/strike>/i);
+      if (strikeMatch) {
+        originalPrice = `$${strikeMatch[1]}`;
+      }
+    }
+    
+    if (!savings) {
+      const savingsMatch = productHtml.match(/<span[^>]*class=['"][^'"]*savings[^'"]*['"][^>]*>Save \$([0-9,]+\.?[0-9]*)<\/span>/i);
+      if (savingsMatch) {
+        savings = `$${savingsMatch[1]}`;
+      }
     }
     
     const priceMatch = productHtml.match(/<span[^>]*id=['"]pricing['"][^>]*content="([0-9,]+\.?[0-9]*)"/i) ||
