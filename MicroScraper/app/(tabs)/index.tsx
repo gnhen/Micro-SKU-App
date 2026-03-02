@@ -89,7 +89,7 @@ export default function ScanScreen() {
   // Text search mode
   const [textSearchMode, setTextSearchMode] = useState(false);
   const [textQuery, setTextQuery] = useState('');
-  const [textResults, setTextResults] = useState<{sku: string, name: string, price: string | null, url: string}[]>([]);
+  const [textResults, setTextResults] = useState<{sku: string, name: string, price: string | null, url: string, imageUrl: string | null, stockText: string | null}[]>([]);
   const [textSearchLoading, setTextSearchLoading] = useState(false);
 
   const { selectedTabs } = useSettings();
@@ -599,6 +599,24 @@ export default function ScanScreen() {
         </View>
         <View style={styles.searchWrapper}>
           <View style={styles.searchBox}>
+            <TouchableOpacity
+              style={[styles.scanButton, styles.textSearchToggleBtn, textSearchMode && styles.textSearchToggleActive]}
+              onPress={() => {
+                const next = !textSearchMode;
+                setTextSearchMode(next);
+                if (!next) {
+                  // Leaving text mode: clear everything
+                  setTextQuery('');
+                  setTextResults([]);
+                  setError(null);
+                } else if (textQuery.trim()) {
+                  // Re-entering text mode with a previous query: auto-search
+                  handleTextSearch();
+                }
+              }}
+            >
+              <Ionicons name={textSearchMode ? 'barcode-outline' : 'search-outline'} size={24} color="white" />
+            </TouchableOpacity>
             <TextInput
               style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]}
               value={textSearchMode ? textQuery : sku}
@@ -614,18 +632,6 @@ export default function ScanScreen() {
                 <Ionicons name="scan" size={24} color="white" />
               </TouchableOpacity>
             )}
-            <TouchableOpacity
-              style={[styles.scanButton, textSearchMode && styles.scanButtonActive]}
-              onPress={() => {
-                const next = !textSearchMode;
-                setTextSearchMode(next);
-                setTextQuery('');
-                setTextResults([]);
-                if (!next) setError(null);
-              }}
-            >
-              <Ionicons name={textSearchMode ? 'barcode-outline' : 'search-outline'} size={24} color="white" />
-            </TouchableOpacity>
           </View>
 
           <TouchableOpacity
@@ -654,16 +660,27 @@ export default function ScanScreen() {
                 style={[styles.textResultRow, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => {
                   setTextSearchMode(false);
-                  setTextQuery('');
                   setTextResults([]);
                   handleSearch(item.url, false, false);
                 }}
               >
+                {item.imageUrl && (
+                  <Image
+                    source={{ uri: item.imageUrl }}
+                    style={styles.textResultThumb}
+                    resizeMode="contain"
+                  />
+                )}
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.textResultName, { color: theme.text }]} numberOfLines={2}>
                     {item.name}
                   </Text>
                   <Text style={{ color: '#aaa', fontSize: 12 }}>SKU: {item.sku}</Text>
+                  {item.stockText && (
+                    <Text style={[styles.textResultStock, { color: item.stockText.includes('0 IN') ? '#DDAA00' : '#00AA00' }]}>
+                      {item.stockText}
+                    </Text>
+                  )}
                 </View>
                 {item.price && <Text style={styles.textResultPrice}>{item.price}</Text>}
               </TouchableOpacity>
@@ -963,11 +980,14 @@ const styles = StyleSheet.create({
   listPickerRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16, borderBottomWidth: 1 },
   listPickerRowText:   { fontSize: 17, fontWeight: '500' },
   listPickerCancelBtn: { marginTop: 16, padding: 14, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#ccc' },
-  scanButtonActive:    { backgroundColor: '#005bb5' },
+  textSearchToggleBtn:    { backgroundColor: '#C00' },
+  textSearchToggleActive: { backgroundColor: '#0a7a0a' },
   buttonTextMode:      { backgroundColor: '#0a7a0a' },
   textResultsList:     { marginTop: 10 },
   textResultsHeader:   { fontSize: 13, color: '#aaa', marginBottom: 8, textAlign: 'center' },
   textResultRow:       { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 8, borderWidth: 1, marginBottom: 8, gap: 10 },
+  textResultThumb:     { width: 64, height: 64, borderRadius: 6, backgroundColor: '#f0f0f0' },
   textResultName:      { fontSize: 14, fontWeight: '600', marginBottom: 2 },
+  textResultStock:     { fontSize: 12, fontWeight: '600', marginTop: 2 },
   textResultPrice:     { fontSize: 16, fontWeight: 'bold', color: '#C00', minWidth: 60, textAlign: 'right' },
 });

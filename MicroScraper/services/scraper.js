@@ -673,12 +673,6 @@ export const fetchTextSearch = async (query, storeId = '071') => {
 
     const html = await response.text();
 
-    // Definitive zero-results signal
-    if (/searchInfoBar[^>]*>[^<]*0\s+Results?\s+for/i.test(html)) {
-      console.log('[fetchTextSearch] 0 results reported by page');
-      return { results: [] };
-    }
-
     // Anchor results section after "Sort by:" so we skip nav/header links
     const sortIdx = html.indexOf('Sort by:');
     const relevantHtml = sortIdx > -1 ? html.substring(sortIdx) : html;
@@ -694,7 +688,7 @@ export const fetchTextSearch = async (query, storeId = '071') => {
       const cardSlice = relevantHtml.substring(m.index, m.index + 900);
 
       // Product data lives on the <a class="...productClickItemV2..."> element
-      // e.g. data-brand="Raspberry Pi" data-name="5" data-price="204.99" href="/product/702590/..."
+      // e.g. data-brand="Raspberry Pi" data-name="5" data-price="204.99" data-id="702590" href="/product/702590/..."
       const aTagMatch = cardSlice.match(/<a[^>]*class="[^"]*productClickItemV2[^"]*"([^>]*)href="(\/product\/[^"?]+)/i);
       if (!aTagMatch) continue;
 
@@ -702,9 +696,10 @@ export const fetchTextSearch = async (query, storeId = '071') => {
       const href = aTagMatch[2];
       const url = BASE_URL + href + `?storeid=${storeId}`;
 
-      const brandAttr = (attrs.match(/data-brand="([^"]*)"/i) || [])[1] || '';
-      const nameAttr  = (attrs.match(/data-name="([^"]*)"/i)  || [])[1] || '';
-      const priceAttr = (attrs.match(/data-price="([^"]*)"/i) || [])[1] || '';
+      const brandAttr   = (attrs.match(/data-brand="([^"]*)"/i)  || [])[1] || '';
+      const nameAttr    = (attrs.match(/data-name="([^"]*)"/i)   || [])[1] || '';
+      const priceAttr   = (attrs.match(/data-price="([^"]*)"/i)  || [])[1] || '';
+      const productId   = (attrs.match(/data-id="([^"]*)"/i)     || [])[1] || '';
 
       const brand = decodeHtml(brandAttr);
       const partial = decodeHtml(nameAttr);
@@ -717,7 +712,16 @@ export const fetchTextSearch = async (query, storeId = '071') => {
 
       const price = priceAttr ? `$${priceAttr}` : null;
 
-      results.push({ sku, name, price, url });
+      // Thumbnail: first front image using productId + sku
+      const imageUrl = productId && sku
+        ? `https://productimages.microcenter.com/${productId}_${sku}_01_front_zoom.jpg`
+        : null;
+
+      // Stock text: "25+ IN STOCK", "3 IN STOCK", "0 IN STOCK", etc.
+      const stockMatch = cardSlice.match(/(\d+\+?\s+IN\s+STOCK[^<"]*)/i);
+      const stockText = stockMatch ? stockMatch[1].trim() : null;
+
+      results.push({ sku, name, price, url, imageUrl, stockText });
     }
 
     console.log(`[fetchTextSearch] Parsed ${results.length} results`);
