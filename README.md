@@ -32,4 +32,6 @@
    
    iii. Tap "Add to Home Screen"
 
-<img src="MicroScraper/assets/images/mc-sku-app.gif" width="300">
+<a href="https://www.youtube.com/watch?v=JZEl9f6UaAI">
+  <img src="MicroScraper/assets/images/mc-sku-demo.jpg" width="300">
+</a>
