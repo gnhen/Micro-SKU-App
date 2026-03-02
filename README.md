@@ -32,6 +32,7 @@
    
    iii. Tap "Add to Home Screen"
 
+# Click the image to watch the demo
 <a href="https://www.youtube.com/watch?v=JZEl9f6UaAI">
   <img src="MicroScraper/assets/images/mc-sku-demo.jpg" width="300">
 </a>
