@@ -268,9 +268,9 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
        }
     } 
     
-    if (!productId && (!sku || sku.trim().length < 6)) {
-      console.error('[fetchProductBySku] Invalid SKU - too short');
-      throw new Error('Enter valid 6-digit SKU');
+    if (!productId && (!sku || sku.trim().length < 1)) {
+      console.log('[fetchProductBySku] Invalid SKU - empty input');
+      return { error: "noResults", searchedSku: sku || '' };
     }
 
     let productHtml;
@@ -308,6 +308,14 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
         const htmlText = await response.text();
 
         if (htmlText.includes("Oh no!") && htmlText.includes("couldn't find any matches")) {
+            return { error: "noResults", searchedSku: sku };
+        }
+
+        // "0 Results for" in the searchInfoBar is definitive — no real product exists for this SKU.
+        // Microcenter may still show a "best guess" product link below it, which we must ignore.
+        const zeroResultsMatch = htmlText.match(/searchInfoBar[^>]*>[^<]*0\s+Results?\s+for\s+[""]?([^""\n<]+)[""]?/i);
+        if (zeroResultsMatch) {
+            console.log(`[fetchProductBySku] Search page reports 0 results — returning noResults`);
             return { error: "noResults", searchedSku: sku };
         }
 
@@ -350,6 +358,16 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
             const linkMatch = relevantHtml.match(/href=["'](\/product\/\d+\/[^"']+)["']/i);
             
             if (linkMatch && linkMatch[1]) {
+                // Verify the searched SKU actually appears in the product card near this link.
+                // Microcenter sometimes returns a "best guess" product for unrecognised SKUs.
+                // In those cases the card won't contain the searched SKU at all.
+                const linkIndex = relevantHtml.indexOf(linkMatch[0]);
+                const cardContext = relevantHtml.substring(Math.max(0, linkIndex - 300), linkIndex + 800);
+                if (!cardContext.includes(sku)) {
+                    console.log(`[fetchProductBySku] Found product link but SKU ${sku} not in card context — treating as no results`);
+                    return { error: "noResults", searchedSku: sku };
+                }
+
                 productUrl = BASE_URL + linkMatch[1] + `?storeid=${storeId}`;
                 const idMatch = linkMatch[1].match(/product\/(\d+)\//);
                 if (idMatch) productId = idMatch[1];
@@ -416,21 +434,53 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
 
     let productName = "";
     let contentStartIndex = 0;
-    const nameMatch = productHtml.match(/<h2[^>]*class=['"]productTi['"][^>]*>([^<]+)<\/h2>/i) ||
-                      productHtml.match(/<h1[^>]*data-name=['"]([^'"]+)['"]/i) ||
-                      productHtml.match(/<h1[^>]*>([^<]+)<\/h1>/i);
-    if (nameMatch) {
-      if (nameMatch[1]) {
-        productName = decodeHtml(nameMatch[1]);
-      }
-      contentStartIndex = nameMatch.index;
+
+    // Try multiple patterns in order of reliability.
+    // 1. h2 with class containing "productTi" (e.g. "productTitle")
+    const h2Match = productHtml.match(/<h2[^>]*class=['"][^'"]*productTi[^'"]*['"][^>]*>([\s\S]*?)<\/h2>/i);
+    // 2. h1 with data-name attribute
+    const h1DataMatch = productHtml.match(/<h1[^>]*data-name=['"]([^'"]+)['"]/i);
+    // 3. h1 with any content (strip inner tags)
+    const h1Match = productHtml.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    // 4. og:title meta tag as reliable fallback
+    const ogTitleMatch = productHtml.match(/<meta[^>]*property=['"]og:title['"][^>]*content=['"]([^'"]+)['"]/i) ||
+                         productHtml.match(/<meta[^>]*content=['"]([^'"]+)['"]\s[^>]*property=['"]og:title['"]/i);
+    // 5. <title> tag as last resort (often "Product Name - Micro Center")
+    const titleTagMatch = productHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+
+    if (h2Match) {
+      productName = decodeHtml(h2Match[1].replace(/<[^>]+>/g, '').trim());
+      contentStartIndex = h2Match.index;
+    } else if (h1DataMatch) {
+      productName = decodeHtml(h1DataMatch[1]);
+      contentStartIndex = h1DataMatch.index;
+    } else if (h1Match) {
+      productName = decodeHtml(h1Match[1].replace(/<[^>]+>/g, '').trim());
+      contentStartIndex = h1Match.index;
+    } else if (ogTitleMatch) {
+      // Strip " - Micro Center" / " | Micro Center" / "| Micro Center" suffixes
+      productName = decodeHtml(ogTitleMatch[1].replace(/\s*[\-|]\s*(Micro.?Center.*)?$/i, '').trim());
+    } else if (titleTagMatch) {
+      // Strip " - Micro Center" or similar suffixes
+      productName = decodeHtml(titleTagMatch[1].replace(/<[^>]+>/g, '').replace(/\s*[\-|]\s*(Micro.?Center.*)?$/i, '').trim());
+    }
+
+    // Guard: if we still couldn't extract a product name the page isn't a real product page.
+    // Return noResults to prevent phantom products being displayed.
+    if (!productName || productName.trim() === '') {
+      console.log('[fetchProductBySku] No product name found on page — treating as no results');
+      return { error: "noResults", searchedSku: originalSku };
     }
 
     let productBrand = "";
     const brandMatch = productHtml.match(/data-brand=['"]([^'"]+)['"]/i) ||
                        productHtml.match(/<span[^>]*class=['"][^'"]*brand[^'"]*['"][^>]*>([^<]+)<\/span>/i);
     if (brandMatch && brandMatch[1]) {
-      productBrand = decodeHtml(brandMatch[1]);
+      const rawBrand = decodeHtml(brandMatch[1]);
+      // Ignore generic/site brands that aren't real product brands
+      if (!/micro.?center/i.test(rawBrand)) {
+        productBrand = rawBrand;
+      }
     }
 
     let price = "Price not found";
@@ -599,6 +649,81 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
   } catch (error) {
     console.error("[fetchProductBySku] Scrape Error:", error);
     console.error("[fetchProductBySku] Error stack:", error.stack);
+    return { error: error.message };
+  }
+};
+
+// ── Text / keyword search ─────────────────────────────────────────────────────
+// Returns { results: [{sku, name, price, url}] } or { singleUrl } or { error }
+export const fetchTextSearch = async (query, storeId = '071') => {
+  try {
+    const encoded = encodeURIComponent(query.trim());
+    const searchUrl = `${BASE_URL}/search/search_results.aspx?Ntt=${encoded}&searchButton=search&storeid=${storeId}`;
+    console.log(`[fetchTextSearch] Fetching: ${searchUrl}`);
+
+    await waitForRateLimit();
+    const response = await fetch(searchUrl, { headers: HEADERS });
+
+    // Redirect straight to a product page → treat as single result
+    if (response.url && response.url.includes('/product/')) {
+      const cleanUrl = response.url.split('?')[0] + `?storeid=${storeId}`;
+      console.log('[fetchTextSearch] Redirected to single product:', cleanUrl);
+      return { singleUrl: cleanUrl };
+    }
+
+    const html = await response.text();
+
+    // Definitive zero-results signal
+    if (/searchInfoBar[^>]*>[^<]*0\s+Results?\s+for/i.test(html)) {
+      console.log('[fetchTextSearch] 0 results reported by page');
+      return { results: [] };
+    }
+
+    // Anchor results section after "Sort by:" so we skip nav/header links
+    const sortIdx = html.indexOf('Sort by:');
+    const relevantHtml = sortIdx > -1 ? html.substring(sortIdx) : html;
+
+    // Each product card is preceded by "Add SKU:XXXXXX to wishlist" anchor text
+    const skuAnchorRegex = /Add SKU:(\d+) to wishlist/g;
+    const results = [];
+    let m;
+
+    while ((m = skuAnchorRegex.exec(relevantHtml)) !== null && results.length < 24) {
+      const sku = m[1];
+      // Slice the ~800 chars after this anchor to get the card content
+      const cardSlice = relevantHtml.substring(m.index, m.index + 900);
+
+      // Product data lives on the <a class="...productClickItemV2..."> element
+      // e.g. data-brand="Raspberry Pi" data-name="5" data-price="204.99" href="/product/702590/..."
+      const aTagMatch = cardSlice.match(/<a[^>]*class="[^"]*productClickItemV2[^"]*"([^>]*)href="(\/product\/[^"?]+)/i);
+      if (!aTagMatch) continue;
+
+      const attrs = aTagMatch[1];
+      const href = aTagMatch[2];
+      const url = BASE_URL + href + `?storeid=${storeId}`;
+
+      const brandAttr = (attrs.match(/data-brand="([^"]*)"/i) || [])[1] || '';
+      const nameAttr  = (attrs.match(/data-name="([^"]*)"/i)  || [])[1] || '';
+      const priceAttr = (attrs.match(/data-price="([^"]*)"/i) || [])[1] || '';
+
+      const brand = decodeHtml(brandAttr);
+      const partial = decodeHtml(nameAttr);
+      // Combine brand + partial name, avoiding duplication (e.g. "Raspberry Pi" + "5" → "Raspberry Pi 5")
+      const name = brand && partial && !partial.toLowerCase().includes(brand.toLowerCase())
+        ? `${brand} ${partial}`
+        : (partial || brand);
+
+      if (!name) continue;
+
+      const price = priceAttr ? `$${priceAttr}` : null;
+
+      results.push({ sku, name, price, url });
+    }
+
+    console.log(`[fetchTextSearch] Parsed ${results.length} results`);
+    return { results };
+  } catch (error) {
+    console.error('[fetchTextSearch] Error:', error);
     return { error: error.message };
   }
 };

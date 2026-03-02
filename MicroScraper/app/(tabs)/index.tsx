@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Text, View, TextInput, TouchableOpacity, ScrollView, 
-  StyleSheet, Alert, Image, Modal, Dimensions, StatusBar, Linking 
+  StyleSheet, Alert, Image, Modal, Dimensions, StatusBar, Linking, ActivityIndicator
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
-import { fetchProductBySku } from '../../services/scraper';
+import { fetchProductBySku, fetchTextSearch } from '../../services/scraper';
 import { useFocusEffect } from '@react-navigation/native';
 import { GestureHandlerRootView, PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
@@ -14,6 +14,10 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
 import { initDatabase, addComponent } from '@/services/database';
 import { detectComponentCategory, extractComponentSpecs } from '@/services/componentDetector';
+import { useSettings } from '@/contexts/SettingsContext';
+import type { ItemList, ListItem } from './list';
+
+const LIST_STORAGE_KEY = 'itemLists';
 
 // Helper function to process scanned barcode data
 const processBarcodeData = (scannedData) => {
@@ -75,6 +79,21 @@ export default function ScanScreen() {
   const [scannerEnabled, setScannerEnabled] = useState(true);
   const [addingToBuilder, setAddingToBuilder] = useState(false);
   const [detectedCategory, setDetectedCategory] = useState(null);
+  const [addingToList, setAddingToList] = useState(false);
+  const [showListPickerModal, setShowListPickerModal] = useState(false);
+  const [pendingListItem, setPendingListItem] = useState<ListItem | null>(null);
+  const [availableListsForPicker, setAvailableListsForPicker] = useState<ItemList[]>([]);
+
+  const mismatchAlertActive = useRef(false);
+
+  // Text search mode
+  const [textSearchMode, setTextSearchMode] = useState(false);
+  const [textQuery, setTextQuery] = useState('');
+  const [textResults, setTextResults] = useState<{sku: string, name: string, price: string | null, url: string}[]>([]);
+  const [textSearchLoading, setTextSearchLoading] = useState(false);
+
+  const { selectedTabs } = useSettings();
+  const listTabActive = selectedTabs.includes('list');
   
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
@@ -301,6 +320,96 @@ export default function ScanScreen() {
     }
   };
 
+  const handleAddToList = async () => {
+    if (!data) return;
+    setAddingToList(true);
+    try {
+      const raw = await AsyncStorage.getItem(LIST_STORAGE_KEY);
+      const lists: ItemList[] = raw ? JSON.parse(raw) : [];
+
+      if (lists.length === 0) {
+        Alert.alert(
+          'No Lists',
+          'Create a list in the List tab first.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      const priceNum = (() => {
+        const p = data.sale_price || data.price;
+        if (!p) return null;
+        const n = parseFloat(p.replace(/[^0-9.]/g, ''));
+        return isNaN(n) ? null : n;
+      })();
+
+      const newItem: ListItem = {
+        id: Date.now().toString(),
+        sku: data.sku || sku,
+        name: data.name || sku,
+        price: priceNum,
+        rawPrice: data.sale_price || data.price || '—',
+        storeId: storeId,
+        date: new Date().toISOString(),
+      };
+
+      const addToListById = async (listId: string) => {
+        const latestRaw = await AsyncStorage.getItem(LIST_STORAGE_KEY);
+        const latestLists: ItemList[] = latestRaw ? JSON.parse(latestRaw) : lists;
+        const updated = latestLists.map(l =>
+          l.id === listId ? { ...l, items: [...l.items, newItem] } : l
+        );
+        await AsyncStorage.setItem(LIST_STORAGE_KEY, JSON.stringify(updated));
+        Alert.alert('Added!', `"${newItem.name}" added to "${latestLists.find(l => l.id === listId)?.name}".`);
+        setShowListPickerModal(false);
+        setPendingListItem(null);
+      };
+
+      if (lists.length === 1) {
+        await addToListById(lists[0].id);
+      } else {
+        // Show scrollable modal picker
+        setPendingListItem(newItem);
+        setAvailableListsForPicker(lists);
+        setShowListPickerModal(true);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to add to list.');
+    } finally {
+      setAddingToList(false);
+    }
+  };
+
+  const handleTextSearch = async () => {
+    if (!textQuery.trim()) return;
+    setTextSearchLoading(true);
+    setTextResults([]);
+    setData(null);
+    setError(null);
+    try {
+      const sid = await AsyncStorage.getItem('storeId') || '071';
+      const result = await fetchTextSearch(textQuery.trim(), sid);
+      if (result.singleUrl) {
+        // Only one product matched — load it directly and exit text mode
+        setTextSearchMode(false);
+        setTextQuery('');
+        handleSearch(result.singleUrl, false, false);
+      } else if (result.error) {
+        setError(result.error);
+      } else {
+        const list = result.results || [];
+        setTextResults(list);
+        if (list.length === 0) {
+          setError(`No results found for "${textQuery}"`);
+        }
+      }
+    } catch (e: any) {
+      setError(e.message || 'Search failed');
+    } finally {
+      setTextSearchLoading(false);
+    }
+  };
+
   const handleSearch = async (searchSku, isUPC = false, fromBarcodeScan = false) => {
     const targetSku = searchSku || sku;
     if (!targetSku) {
@@ -335,15 +444,10 @@ export default function ScanScreen() {
           `Scanned Text: ${result.searchedSku}`,
           [
             {
-              text: "Cancel",
-              style: "cancel",
+              text: "OK",
               onPress: () => {
                 setError(`Incorrect SKU Entry\n\nNo matches found for SKU: ${result.searchedSku}\n\nPlease verify the SKU and try again.`);
               }
-            },
-            { 
-              text: "Scan for Manufacturer Code?", 
-              onPress: () => setScanning(true) 
             }
           ]
         );
@@ -356,8 +460,9 @@ export default function ScanScreen() {
         if (isUPC || isURL || !isNumericSku) {
            console.log("Auto-redirecting mismatch for Code/UPC/URL. Loading:", result.foundSku);
            handleSearch(result.foundSku, false);
-        } else {
-           // Mismatch on a proper 6-digit SKU. Show alert with options.
+        } else if (!mismatchAlertActive.current) {
+           // Mismatch on a proper 6-digit SKU. Show alert with options (at most once at a time).
+           mismatchAlertActive.current = true;
             Alert.alert(
               "SKU Mismatch", 
               `Scanned: ${targetSku}\nFound SKU: ${result.foundSku}`,
@@ -365,15 +470,17 @@ export default function ScanScreen() {
                 {
                   text: "Cancel",
                   style: "cancel",
-                  onPress: () => setError(`Incorrect SKU Entry\n\nYou searched for: ${targetSku}\n\nPlease verify the SKU and try again.`)
-                },
-                { 
-                  text: "Scan for Manufacturer Code?", 
-                  onPress: () => setScanning(true) 
+                  onPress: () => {
+                    mismatchAlertActive.current = false;
+                    setError(`Incorrect SKU Entry\n\nYou searched for: ${targetSku}\n\nPlease verify the SKU and try again.`);
+                  }
                 },
                 { 
                   text: "View Found Product", 
-                  onPress: () => handleSearch(result.foundSku, false) 
+                  onPress: () => {
+                    mismatchAlertActive.current = false;
+                    handleSearch(result.foundSku, false);
+                  }
                 }
               ]
             );
@@ -492,25 +599,77 @@ export default function ScanScreen() {
         </View>
         <View style={styles.searchWrapper}>
           <View style={styles.searchBox}>
-            <TextInput 
-              style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]} 
-              value={sku} 
-              onChangeText={setSku} 
-              placeholder="Enter SKU" 
+            <TextInput
+              style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]}
+              value={textSearchMode ? textQuery : sku}
+              onChangeText={textSearchMode ? setTextQuery : setSku}
+              placeholder={textSearchMode ? 'Search by name, keyword...' : 'Enter SKU'}
               placeholderTextColor="gray"
-              keyboardType="numeric"
+              keyboardType={textSearchMode ? 'default' : 'numeric'}
+              returnKeyType={textSearchMode ? 'search' : 'done'}
+              onSubmitEditing={textSearchMode ? handleTextSearch : undefined}
             />
-            <TouchableOpacity style={styles.scanButton} onPress={() => setScanning(true)}>
-              <Ionicons name="scan" size={24} color="white" />
+            {!textSearchMode && (
+              <TouchableOpacity style={styles.scanButton} onPress={() => setScanning(true)}>
+                <Ionicons name="scan" size={24} color="white" />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.scanButton, textSearchMode && styles.scanButtonActive]}
+              onPress={() => {
+                const next = !textSearchMode;
+                setTextSearchMode(next);
+                setTextQuery('');
+                setTextResults([]);
+                if (!next) setError(null);
+              }}
+            >
+              <Ionicons name={textSearchMode ? 'barcode-outline' : 'search-outline'} size={24} color="white" />
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.button} onPress={() => handleSearch(null)}>
-            <Text style={styles.buttonText}>Search Product</Text>
+          <TouchableOpacity
+            style={[styles.button, textSearchMode && styles.buttonTextMode]}
+            onPress={() => textSearchMode ? handleTextSearch() : handleSearch(null)}
+            disabled={textSearchLoading}
+          >
+            {textSearchLoading
+              ? <ActivityIndicator color="white" />
+              : <Text style={styles.buttonText}>{textSearchMode ? 'Search' : 'Search Product'}</Text>
+            }
           </TouchableOpacity>
         </View>
 
-        {loading && <Text style={{marginTop:20, color: theme.text, textAlign: 'center'}}>Loading...</Text>}
+        {(loading || textSearchLoading) && <Text style={{marginTop:20, color: theme.text, textAlign: 'center'}}>Loading...</Text>}
+
+        {/* Text search results list */}
+        {textResults.length > 0 && (
+          <View style={styles.textResultsList}>
+            <Text style={[styles.textResultsHeader, { color: theme.text }]}>
+              {textResults.length} result{textResults.length !== 1 ? 's' : ''} — tap to view
+            </Text>
+            {textResults.map(item => (
+              <TouchableOpacity
+                key={item.url}
+                style={[styles.textResultRow, { backgroundColor: theme.card, borderColor: theme.border }]}
+                onPress={() => {
+                  setTextSearchMode(false);
+                  setTextQuery('');
+                  setTextResults([]);
+                  handleSearch(item.url, false, false);
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.textResultName, { color: theme.text }]} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  <Text style={{ color: '#aaa', fontSize: 12 }}>SKU: {item.sku}</Text>
+                </View>
+                {item.price && <Text style={styles.textResultPrice}>{item.price}</Text>}
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {error && (
           <View style={[styles.errorCard, { borderColor: '#C00', backgroundColor: theme.card }]}>
@@ -641,10 +800,69 @@ export default function ScanScreen() {
           )}
 
           {/* Add to PC Builder Button */}
-          
+
+          {/* Add to List Button — shown when List tab is active */}
+          {listTabActive && (
+            <TouchableOpacity
+              style={[
+                styles.addToBuilderButton,
+                { backgroundColor: addingToList ? '#aaa' : '#1a7a1a' },
+              ]}
+              onPress={handleAddToList}
+              disabled={addingToList}
+            >
+              <Ionicons name="list" size={20} color="white" />
+              <Text style={[styles.addToBuilderButtonText, { color: 'white' }]}>
+                {addingToList ? 'Adding...' : 'Add to List'}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
       </ScrollView>
+
+      {/* Full Screen Image Modal */}
+      <Modal
+        visible={showListPickerModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { setShowListPickerModal(false); setPendingListItem(null); }}
+      >
+        <View style={styles.listPickerOverlay}>
+          <View style={[styles.listPickerBox, { backgroundColor: theme.card }]}>
+            <Text style={[styles.listPickerTitle, { color: theme.text }]}>Add to Which List?</Text>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {availableListsForPicker.map(list => (
+                <TouchableOpacity
+                  key={list.id}
+                  style={[styles.listPickerRow, { borderBottomColor: theme.border }]}
+                  onPress={async () => {
+                    if (!pendingListItem) return;
+                    const raw = await AsyncStorage.getItem(LIST_STORAGE_KEY);
+                    const allLists: ItemList[] = raw ? JSON.parse(raw) : [];
+                    const updated = allLists.map(l =>
+                      l.id === list.id ? { ...l, items: [...l.items, pendingListItem] } : l
+                    );
+                    await AsyncStorage.setItem(LIST_STORAGE_KEY, JSON.stringify(updated));
+                    setShowListPickerModal(false);
+                    setPendingListItem(null);
+                    Alert.alert('Added!', `"${pendingListItem.name}" added to "${list.name}".`);
+                  }}
+                >
+                  <Text style={[styles.listPickerRowText, { color: theme.text }]}>{list.name}</Text>
+                  <Text style={{ color: '#aaa', fontSize: 13 }}>{list.items.length} items</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.listPickerCancelBtn}
+              onPress={() => { setShowListPickerModal(false); setPendingListItem(null); }}
+            >
+              <Text style={{ fontWeight: 'bold', fontSize: 15, color: '#555' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Full Screen Image Modal */}
       <Modal
@@ -739,4 +957,17 @@ const styles = StyleSheet.create({
   fullScreenTouchable: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' },
   fullScreenImage: { width: '100%', height: '100%' },
   closeButton: { position: 'absolute', top: 50, right: 20, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 25, padding: 5 },
+  listPickerOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  listPickerBox:       { borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 24, paddingBottom: 36 },
+  listPickerTitle:     { fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },
+  listPickerRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16, borderBottomWidth: 1 },
+  listPickerRowText:   { fontSize: 17, fontWeight: '500' },
+  listPickerCancelBtn: { marginTop: 16, padding: 14, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#ccc' },
+  scanButtonActive:    { backgroundColor: '#005bb5' },
+  buttonTextMode:      { backgroundColor: '#0a7a0a' },
+  textResultsList:     { marginTop: 10 },
+  textResultsHeader:   { fontSize: 13, color: '#aaa', marginBottom: 8, textAlign: 'center' },
+  textResultRow:       { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 8, borderWidth: 1, marginBottom: 8, gap: 10 },
+  textResultName:      { fontSize: 14, fontWeight: '600', marginBottom: 2 },
+  textResultPrice:     { fontSize: 16, fontWeight: 'bold', color: '#C00', minWidth: 60, textAlign: 'right' },
 });
