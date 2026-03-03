@@ -1,27 +1,35 @@
-<img src="MicroScraper/assets/images/icon.png" width="200">
+<img src="MicroScraper/assets/images/icon.png" width="175">
 
 # Micro SKU App
-### Inspired by Micro-C-App, this app aims to give a specific tool to the employees:
-#### The ability to scan barcodes, sku tags, and manufacturer codes to find items.
-#### Gone are the days of fumbling to type in a SKU, or even a UPC, just to find the price of a product!
+### Employees can use this app to do the following
+##### 1. Scan SKUs and UPCs
+##### 2. Search for products in plain text
+##### 3. Create lists of products with prices and stock amounts
+##### 4. Bulk scan SKUs for a list
+##### 5. Build PCs with a part picker
+##### 6. View scanning history
+##### 7. Select their store
+##### 8. Select their department
+##### 9. Customize their toolbar
+##### 10. Use either Dark or Light mode
 
-# Installation
+## Installation
 
-## Developer accounts are expensive. For both Android and iOS. So for now, we have a .apk for Android, and a .ipa for iOS
+##### Developer accounts are expensive, so for now, Sideloading is the best option for devices.
 
-### Android
+## Android
 1. Visit the [Releases](https://github.com/gnhen/Micro-SKU-App/releases/latest) tab.
 2. Download the Android apk
 3. Install app
 
-### iOS
+## iOS
 1. Visit the [Releases](https://github.com/gnhen/Micro-SKU-App/releases/latest) tab.
 2. Download the iOS ipa
 3. Use a service to sideload, such as *Sideloadly* or ***SideStore***. SideStore is recommended.
 4. Refresh app every 7 days or sooner (Or use a shortcut with SideStore)
 
 ### iOS Shortcut Version
-#### For people that cannot or will not sideload, I have made an iOS shortcut version. This just takes you to the product page for each item.
+#### For people that cannot or will not sideload, I have made an iOS shortcut version. This just takes you to the product page for each scanned item.
 1. Visit the [Shortcut URL](https://www.icloud.com/shortcuts/6d2ae6b723774c589fb1c6dc8657500d)
 2. Install
 3. Add to Home Screen
