@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Text,
   View,
@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
@@ -30,6 +31,8 @@ export interface ListItem {
   rawPrice: string;     // display string e.g. "$49.99"
   storeId: string;
   date: string;
+  stockText?: string | null;
+  inStock?: boolean | null;
 }
 
 export interface ItemList {
@@ -63,6 +66,20 @@ function listTotal(items: ListItem[]): string {
   return `$${total.toFixed(2)}`;
 }
 
+function parseStockQty(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const m = text.match(/^(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+// Minimal barcode processor for direct-to-list scanning
+function processBarcodeRaw(raw: string): string {
+  const d = raw.replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim();
+  if (/^\d{6}$/.test(d)) return d;
+  if (d.length >= 7 && d.length <= 10 && /^\d{6}/.test(d)) return d.substring(0, 6);
+  return d;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ListScreen() {
@@ -91,7 +108,21 @@ export default function ListScreen() {
   const [renameInput, setRenameInput] = useState('');
   const [renamingListId, setRenamingListId] = useState<string | null>(null);
 
+  // Bulk scan to list
+  const [scanningToList, setScanningToList] = useState(false);
+  const [bulkScanEnabled, setBulkScanEnabled] = useState(true);
+  const [toastMsg, setToastMsg] = useState('');
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
   const router = useRouter();
+
+  // Auto-dismiss toast after 2.5 s
+  useEffect(() => {
+    if (!toastMsg) return;
+    const t = setTimeout(() => setToastMsg(''), 2500);
+    return () => clearTimeout(t);
+  }, [toastMsg]);
 
   // ── Load data on focus ──────────────────────────────────────────────────────
   useFocusEffect(
@@ -221,6 +252,79 @@ export default function ListScreen() {
     );
   };
 
+  // ── Refresh prices & stock for all items in current list ───────────────────
+  const handleRefreshPrices = async () => {
+    if (!currentList || refreshingPrices) return;
+    setRefreshingPrices(true);
+    try {
+      const sid = await AsyncStorage.getItem('storeId') || storeId;
+      const updatedItems: ListItem[] = [];
+      for (const item of currentList.items) {
+        try {
+          const result = await fetchProductBySku(item.sku, sid);
+          if (result.error) {
+            updatedItems.push(item);
+          } else {
+            updatedItems.push({
+              ...item,
+              price: parsePrice((result as any).sale_price || result.price),
+              rawPrice: (result as any).sale_price || result.price || item.rawPrice,
+              stockText: result.stockText ?? item.stockText,
+              inStock: result.inStock ?? item.inStock,
+            });
+          }
+        } catch {
+          updatedItems.push(item);
+        }
+      }
+      const updated = lists.map(l =>
+        l.id === currentListId ? { ...l, items: updatedItems } : l
+      );
+      await saveLists(updated);
+    } finally {
+      setRefreshingPrices(false);
+    }
+  };
+
+  // ── Bulk barcode scan handler ────────────────────────────────────────────────
+  const handleBulkBarcodeScanned = async ({ data: rawData }: { data: string }) => {
+    if (!bulkScanEnabled || !currentList) return;
+    setBulkScanEnabled(false);
+    const processed = processBarcodeRaw(rawData);
+    try {
+      const sid = await AsyncStorage.getItem('storeId') || storeId;
+      const result = await fetchProductBySku(processed, sid);
+      if (result.error) {
+        setToastMsg(`Not found: ${processed}`);
+      } else {
+        const price = parsePrice((result as any).sale_price || result.price);
+        const newItem: ListItem = {
+          id: Date.now().toString(),
+          sku: result.sku || processed,
+          name: result.name || processed,
+          price,
+          rawPrice: (result as any).sale_price || result.price || '—',
+          storeId: sid,
+          date: new Date().toISOString(),
+          stockText: result.stockText ?? null,
+          inStock: result.inStock ?? null,
+        };
+        // Read fresh copy from storage to avoid stale state
+        const latestRaw = await AsyncStorage.getItem(STORAGE_KEY);
+        const latestLists: ItemList[] = latestRaw ? JSON.parse(latestRaw) : lists;
+        const updated = latestLists.map(l =>
+          l.id === currentListId ? { ...l, items: [...l.items, newItem] } : l
+        );
+        await saveLists(updated);
+        setToastMsg(`Added: ${newItem.name}`);
+      }
+    } catch (e: any) {
+      setToastMsg(`Error: ${e.message}`);
+    } finally {
+      setTimeout(() => setBulkScanEnabled(true), 1200);
+    }
+  };
+
   // ── Add item by SKU ─────────────────────────────────────────────────────────
   const handleAddItem = async () => {
     const rawSku = addSkuInput.trim();
@@ -249,6 +353,8 @@ export default function ListScreen() {
         rawPrice: (result as any).sale_price || result.price || '—',
         storeId: sid,
         date: new Date().toISOString(),
+        stockText: result.stockText ?? null,
+        inStock: result.inStock ?? null,
       };
 
       const updated = lists.map(l =>
@@ -294,6 +400,48 @@ export default function ListScreen() {
     );
     await saveLists(updated);
   };
+
+  // ── Bulk scan camera view ───────────────────────────────────────────────────
+  if (scanningToList && currentList) {
+    if (!cameraPermission?.granted) {
+      return (
+        <View style={[styles.container, { backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }]}>
+          <Text style={{ textAlign: 'center', marginBottom: 20, color: theme.text }}>Camera permission needed</Text>
+          <TouchableOpacity style={styles.primaryBtn} onPress={requestCameraPermission}>
+            <Text style={styles.primaryBtnText}>Grant Permission</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <View style={{ flex: 1 }}>
+          <CameraView
+            style={{ flex: 1 }}
+            onBarcodeScanned={bulkScanEnabled ? handleBulkBarcodeScanned : undefined}
+            barcodeScannerSettings={{
+              barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'upc_a', 'upc_e'],
+            }}
+          />
+          <View style={styles.bulkScanHeader}>
+            <Text style={styles.bulkScanHeaderText}>Scanning → {currentList.name}</Text>
+            <Text style={styles.bulkScanSubText}>{currentList.items.length} item{currentList.items.length !== 1 ? 's' : ''}</Text>
+          </View>
+          {!!toastMsg && (
+            <View style={styles.toast}>
+              <Text style={styles.toastText}>{toastMsg}</Text>
+            </View>
+          )}
+          <TouchableOpacity
+            style={styles.bulkDoneBtn}
+            onPress={() => setScanningToList(false)}
+          >
+            <Text style={styles.primaryBtnText}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      </GestureHandlerRootView>
+    );
+  }
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -345,6 +493,17 @@ export default function ListScreen() {
         <View style={[styles.totalBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Text style={[styles.totalLabel, { color: theme.text }]}>Pre-Tax Total</Text>
           <Text style={styles.totalValue}>{listTotal(currentList.items)}</Text>
+          <TouchableOpacity
+            onPress={handleRefreshPrices}
+            disabled={refreshingPrices}
+            style={{ padding: 4 }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            {refreshingPrices
+              ? <ActivityIndicator size="small" color="#0173DF" />
+              : <Ionicons name="refresh-outline" size={22} color="#0173DF" />
+            }
+          </TouchableOpacity>
         </View>
       )}
 
@@ -393,6 +552,17 @@ export default function ListScreen() {
                   </Text>
                   <Text style={[styles.itemSku, { color: '#aaa' }]}>SKU: {item.sku}</Text>
                 </View>
+                {(() => {
+                  const qty = parseStockQty(item.stockText);
+                  const isOut = item.inStock === false || qty === 0;
+                  const isLow = qty !== null && qty > 0 && qty <= 5;
+                  if (!isOut && !isLow) return null;
+                  return (
+                    <View style={[styles.stockBadge, { backgroundColor: isOut ? '#C00' : '#E07000' }]}>
+                      <Text style={styles.stockBadgeText}>{isOut ? 'OUT' : String(qty)}</Text>
+                    </View>
+                  );
+                })()}
                 <Text style={styles.itemPrice}>{item.rawPrice}</Text>
                 <TouchableOpacity onPress={() => handleRemoveItem(item.id)} style={styles.removeBtn}>
                   <Ionicons name="close-circle-outline" size={22} color="#C00" />
@@ -403,21 +573,31 @@ export default function ListScreen() {
         </ScrollView>
       )}
 
-      {/* ── Add Item FAB ── */}
+      {/* ── FAB row: Scan to List + Add Item ── */}
       {currentList && (
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={() => {
-            setAddSkuInput('');
-            setShowAddItemModal(true);
-          }}
-        >
-          <Ionicons name="add" size={28} color="white" />
-          <Text style={styles.fabText}>Add Item</Text>
-        </TouchableOpacity>
+        <View style={styles.fabRow}>
+          <TouchableOpacity
+            style={styles.fabSecondary}
+            onPress={() => {
+              setBulkScanEnabled(true);
+              setScanningToList(true);
+            }}
+          >
+            <Ionicons name="scan" size={22} color="white" />
+            <Text style={styles.fabSecondaryText}>Scan</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.fab}
+            onPress={() => {
+              setAddSkuInput('');
+              setShowAddItemModal(true);
+            }}
+          >
+            <Ionicons name="add" size={28} color="white" />
+            <Text style={styles.fabText}>Add Item</Text>
+          </TouchableOpacity>
+        </View>
       )}
-
-      {/* ── New list FAB (top-right + button) is handled via handleCreateList directly */}
 
       {/* ── List picker modal (swipe-to-delete rows) ── */}
       <Modal visible={showListPicker} animationType="slide" transparent>
@@ -575,8 +755,19 @@ const styles = StyleSheet.create({
   itemSku:         { fontSize: 12 },
   itemPrice:       { fontSize: 16, fontWeight: 'bold', color: '#C00', minWidth: 60, textAlign: 'right' },
   removeBtn:       { padding: 4 },
-  fab:             { position: 'absolute', bottom: 24, right: 24, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#0173DF', paddingVertical: 14, paddingHorizontal: 20, borderRadius: 30, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
+  fabRow:          { position: 'absolute', bottom: 24, right: 24, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  fab:             { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#0173DF', paddingVertical: 14, paddingHorizontal: 20, borderRadius: 30, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
   fabText:         { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  fabSecondary:    { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#5a4a8a', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 30, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
+  fabSecondaryText:{ color: 'white', fontWeight: 'bold', fontSize: 14 },
+  bulkScanHeader:  { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.65)', paddingTop: 52, paddingBottom: 14, paddingHorizontal: 20, alignItems: 'center' },
+  bulkScanHeaderText: { color: 'white', fontWeight: 'bold', fontSize: 17 },
+  bulkScanSubText: { color: 'rgba(255,255,255,0.7)', fontSize: 13, marginTop: 2 },
+  toast:           { position: 'absolute', bottom: 130, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.85)', paddingHorizontal: 22, paddingVertical: 12, borderRadius: 24, maxWidth: '85%' },
+  toastText:       { color: 'white', fontWeight: '600', fontSize: 14, textAlign: 'center' },
+  bulkDoneBtn:     { position: 'absolute', bottom: 50, alignSelf: 'center', backgroundColor: '#0173DF', paddingHorizontal: 36, paddingVertical: 15, borderRadius: 30, elevation: 4 },
+  stockBadge:      { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5, alignItems: 'center', justifyContent: 'center', minWidth: 36 },
+  stockBadgeText:  { color: 'white', fontSize: 11, fontWeight: 'bold' },
   modalOverlay:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center' },
   modalBox:        { margin: 24, borderRadius: 12, padding: 24, gap: 12, maxHeight: '80%' },
   pickerScroll:    { maxHeight: 320, flexGrow: 0 },

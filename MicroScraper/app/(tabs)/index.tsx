@@ -159,6 +159,10 @@ export default function ScanScreen() {
         if (pendingSku) {
           // Clear the pending search
           await AsyncStorage.removeItem('pendingSearch');
+          // Exit text search mode so the result card is visible
+          setTextSearchMode(false);
+          setTextResults([]);
+          setTextQuery('');
           // Set the SKU and trigger search
           setSku(pendingSku);
           handleSearch(pendingSku);
@@ -353,6 +357,8 @@ export default function ScanScreen() {
         rawPrice: data.sale_price || data.price || '—',
         storeId: storeId,
         date: new Date().toISOString(),
+        stockText: data.stockText ?? null,
+        inStock: data.inStock ?? null,
       };
 
       const addToListById = async (listId: string) => {
@@ -692,11 +698,18 @@ export default function ScanScreen() {
                     {item.name}
                   </Text>
                   <Text style={{ color: '#aaa', fontSize: 12 }}>SKU: {item.sku}</Text>
-                  {item.stockText && (
-                    <Text style={[styles.textResultStock, { color: item.stockText.includes('0 IN') ? '#DDAA00' : '#00AA00' }]}>
-                      {item.stockText}
-                    </Text>
-                  )}
+                  {item.stockText && (() => {
+                    const qtyMatch = item.stockText.match(/^(\d+)/);
+                    const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : null;
+                    const isOut = qty === 0;
+                    const isLow = qty !== null && qty > 0 && qty <= 5;
+                    const badgeColor = isOut ? '#C00' : isLow ? '#E07000' : '#1a7a1a';
+                    return (
+                      <View style={[styles.textStockBadge, { backgroundColor: badgeColor }]}>
+                        <Text style={styles.textStockBadgeText}>{item.stockText}</Text>
+                      </View>
+                    );
+                  })()}
                 </View>
                 {item.price && <Text style={styles.textResultPrice}>{item.price}</Text>}
               </TouchableOpacity>
@@ -1005,5 +1018,7 @@ const styles = StyleSheet.create({
   textResultThumb:     { width: 64, height: 64, borderRadius: 6, backgroundColor: '#f0f0f0' },
   textResultName:      { fontSize: 14, fontWeight: '600', marginBottom: 2 },
   textResultStock:     { fontSize: 12, fontWeight: '600', marginTop: 2 },
+  textStockBadge:      { alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5 },
+  textStockBadgeText:  { color: 'white', fontSize: 11, fontWeight: 'bold' },
   textResultPrice:     { fontSize: 16, fontWeight: 'bold', color: '#C00', minWidth: 60, textAlign: 'right' },
 });

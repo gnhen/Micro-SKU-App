@@ -688,8 +688,8 @@ export const fetchTextSearch = async (query, storeId = '071') => {
 
     while ((m = skuAnchorRegex.exec(relevantHtml)) !== null && results.length < 24) {
       const sku = m[1];
-      // Slice the ~800 chars after this anchor to get the card content
-      const cardSlice = relevantHtml.substring(m.index, m.index + 900);
+      // Slice a window around this anchor — stock info often appears after the product link
+      const cardSlice = relevantHtml.substring(m.index, m.index + 1800);
 
       // Product data lives on the <a class="...productClickItemV2..."> element
       // e.g. data-brand="Raspberry Pi" data-name="5" data-price="204.99" data-id="702590" href="/product/702590/..."
@@ -721,9 +721,17 @@ export const fetchTextSearch = async (query, storeId = '071') => {
         ? `https://productimages.microcenter.com/${productId}_${sku}_01_front_zoom.jpg`
         : null;
 
-      // Stock text: "25+ IN STOCK", "3 IN STOCK", "0 IN STOCK", etc.
-      const stockMatch = cardSlice.match(/(\d+\+?\s+IN\s+STOCK[^<"]*)/i);
-      const stockText = stockMatch ? stockMatch[1].trim() : null;
+      // Stock text: handles "8 IN STOCK", "2 NEW IN STOCK", "25+ IN STOCK", etc.
+      // First try inventoryCnt span (strips inner HTML tags), then fall back to plain text match.
+      let stockText = null;
+      const invMatch = cardSlice.match(/class="inventoryCnt"[^>]*>(.*?)<\/span>\s*<span class="storeName"/is);
+      if (invMatch) {
+        // Strip all inner HTML and collapse whitespace
+        stockText = invMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      } else {
+        const plainMatch = cardSlice.match(/(\d+\+?\s+(?:NEW\s+)?(?:OPEN\s+BOX\s+)?IN\s+STOCK)/i);
+        if (plainMatch) stockText = plainMatch[1].trim();
+      }
 
       results.push({ sku, name, price, url, imageUrl, stockText });
     }
