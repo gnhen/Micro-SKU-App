@@ -69,6 +69,7 @@ export default function ScanScreen() {
   const [sku, setSku] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState('');
   const [error, setError] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
@@ -85,6 +86,7 @@ export default function ScanScreen() {
   const [availableListsForPicker, setAvailableListsForPicker] = useState<ItemList[]>([]);
 
   const mismatchAlertActive = useRef(false);
+  const noResultsAlertActive = useRef(false);
 
   // Text search mode
   const [textSearchMode, setTextSearchMode] = useState(false);
@@ -431,26 +433,32 @@ export default function ScanScreen() {
       console.log(`[handleSearch] Starting search - SKU: ${targetSku}, isUPC: ${isUPC}, fromBarcodeScan: ${fromBarcodeScan}`);
       const storeId = await AsyncStorage.getItem('storeId') || '071';
       console.log(`[handleSearch] Using storeId: ${storeId}`);
-      const result = await fetchProductBySku(targetSku, storeId);
+      const result = await fetchProductBySku(targetSku, storeId, (msg) => setLoadingStatus(msg));
       console.log(`[handleSearch] Result received:`, JSON.stringify(result, null, 2).substring(0, 500));
       
       setLoading(false);
+      setLoadingStatus('');
     
     if (result.error) {
       console.log(`[handleSearch] Error in result: ${result.error}`);
       if (result.error === "noResults") {
-        Alert.alert(
-          "Product Not Found", 
-          `Scanned Text: ${result.searchedSku}`,
-          [
-            {
-              text: "OK",
-              onPress: () => {
-                setError(`Incorrect SKU Entry\n\nNo matches found for SKU: ${result.searchedSku}\n\nPlease verify the SKU and try again.`);
+        if (!noResultsAlertActive.current) {
+          noResultsAlertActive.current = true;
+          Alert.alert(
+            "Product Not Found", 
+            `Scanned Text: ${result.searchedSku}`,
+            [
+              {
+                text: "OK",
+                onPress: () => {
+                  noResultsAlertActive.current = false;
+                  setError(`Incorrect SKU Entry\n\nNo matches found for SKU: ${result.searchedSku}\n\nPlease verify the SKU and try again.`);
+                  if (fromBarcodeScan) setScannerEnabled(true);
+                }
               }
-            }
-          ]
-        );
+            ]
+          );
+        }
       } else if (result.error === "skuMismatch") {
         // Check if the input was a standard 6-digit numeric SKU
         const isNumericSku = /^\d{6}$/.test(targetSku);
@@ -507,8 +515,8 @@ export default function ScanScreen() {
       addToHistory(finalData);
     }
     
-    // Always re-enable scanner after processing completes
-    if (fromBarcodeScan) {
+    // Re-enable scanner after processing completes (noResults defers this to the alert's OK button)
+    if (fromBarcodeScan && !noResultsAlertActive.current) {
       console.log('[handleSearch] Re-enabling scanner (success)');
       setScannerEnabled(true);
     }
@@ -516,6 +524,7 @@ export default function ScanScreen() {
       console.error('[handleSearch] Catch block - Search error:', error);
       console.error('[handleSearch] Error stack:', error.stack);
       setLoading(false);
+      setLoadingStatus('');
       setError(error.message || 'An error occurred');
       if (fromBarcodeScan) {
         console.log('[handleSearch] Re-enabling scanner (error)');
@@ -595,7 +604,7 @@ export default function ScanScreen() {
       >
         <View style={styles.header}>
           <Text style={[styles.appTitle, { color: theme.text }]}>Micro SKU App</Text>
-          {storeId === '071' && <Text style={styles.tagline}>Sharonville rocks</Text>}
+          {storeId === '071' && <Text style={styles.tagline}>Sharonville Rocks</Text>}
         </View>
         <View style={styles.searchWrapper}>
           <View style={styles.searchBox}>
@@ -646,7 +655,14 @@ export default function ScanScreen() {
           </TouchableOpacity>
         </View>
 
-        {(loading || textSearchLoading) && <Text style={{marginTop:20, color: theme.text, textAlign: 'center'}}>Loading...</Text>}
+        {(loading || textSearchLoading) && (
+          <View style={{alignItems: 'center'}}>
+            <Text style={{marginTop:20, color: theme.text, textAlign: 'center'}}>Loading...</Text>
+            {!!loadingStatus && (
+              <Text style={{marginTop: 6, color: theme.text, textAlign: 'center', opacity: 0.6, fontSize: 13}}>{loadingStatus}</Text>
+            )}
+          </View>
+        )}
 
         {/* Text search results list */}
         {textResults.length > 0 && (

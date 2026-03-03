@@ -4,13 +4,15 @@ const BASE_URL = 'https://www.microcenter.com';
 let lastRequestTime = 0;
 const MIN_REQUEST_INTERVAL = 2000; // 2 seconds between requests
 
-const waitForRateLimit = async () => {
+const waitForRateLimit = async (onStatus) => {
   const now = Date.now();
   const timeSinceLastRequest = now - lastRequestTime;
   if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
     const waitTime = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
     console.log(`[Rate Limit] Waiting ${waitTime}ms before next request`);
+    if (onStatus) onStatus(`Rate limit: waiting ${waitTime}ms...`);
     await new Promise(resolve => setTimeout(resolve, waitTime));
+    if (onStatus) onStatus('');
   }
   lastRequestTime = Date.now();
 };
@@ -251,7 +253,7 @@ const extractSpecs = (html) => {
   return specs;
 };
 
-export const fetchProductBySku = async (sku, storeId = '071') => {
+export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
   try {
     console.log(`[fetchProductBySku] Starting fetch for SKU: ${sku}, storeId: ${storeId}`);
     let productId = null;
@@ -279,7 +281,7 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
       const searchUrl = `${BASE_URL}/search/search_results.aspx?Ntt=${sku}&searchButton=search&storeid=${storeId}`;
       console.log(`[fetchProductBySku] Fetching search URL: ${searchUrl}`);
       
-      await waitForRateLimit(); // Wait to avoid rate limiting
+      await waitForRateLimit(onStatus); // Wait to avoid rate limiting
       const response = await fetch(searchUrl, { headers: HEADERS });
       console.log(`[fetchProductBySku] Search response status: ${response.status}, URL: ${response.url}`);
       
@@ -361,9 +363,11 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
                 // Verify the searched SKU actually appears in the product card near this link.
                 // Microcenter sometimes returns a "best guess" product for unrecognised SKUs.
                 // In those cases the card won't contain the searched SKU at all.
+                // Skip this check for UPCs (>10 chars) — Microcenter cards only show the
+                // internal 6-digit SKU, never the UPC, so the check always fails for UPCs.
                 const linkIndex = relevantHtml.indexOf(linkMatch[0]);
                 const cardContext = relevantHtml.substring(Math.max(0, linkIndex - 300), linkIndex + 800);
-                if (!cardContext.includes(sku)) {
+                if (sku.length <= 10 && !cardContext.includes(sku)) {
                     console.log(`[fetchProductBySku] Found product link but SKU ${sku} not in card context — treating as no results`);
                     return { error: "noResults", searchedSku: sku };
                 }
@@ -408,7 +412,7 @@ export const fetchProductBySku = async (sku, storeId = '071') => {
 
     if (typeof productHtml === 'undefined') {
         console.log(`[fetchProductBySku] Fetching product page: ${productUrl}`);
-        await waitForRateLimit(); // Wait to avoid rate limiting
+        await waitForRateLimit(onStatus); // Wait to avoid rate limiting
         const productResponse = await fetch(productUrl, { headers: HEADERS });
         console.log(`[fetchProductBySku] Product response status: ${productResponse.status}`);
         productHtml = await productResponse.text();

@@ -174,7 +174,7 @@ export default function SettingsScreen() {
         )}
 
         <View style={{ height: 40 }} />
-        <Text style={styles.versionText}>Build v{versionInfo.version}</Text>
+        <Text style={styles.versionText}>Build v{versionInfo.version} - by Grant Hendricks</Text>
         <View style={{ height: 30 }} />
       </ScrollView>
 
