@@ -46,8 +46,10 @@ interface SettingsContextValue {
   /** Tabs that appear in the More screen (overflow). */
   overflowTabs: TabRoute[];
   showMoreTab: boolean;
+  plansEnabled: boolean;
   setDepartment: (dept: Department) => void;
   setSelectedTabs: (tabs: TabRoute[]) => void;
+  setPlansEnabled: (val: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -83,17 +85,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [selectedTabs, setSelectedTabsState] = useState<TabRoute[]>(
     DEPARTMENT_DEFAULTS['General Sales']
   );
+  const [plansEnabled, setPlansEnabledState] = useState(false);
 
   // Load persisted settings
   useEffect(() => {
     (async () => {
       try {
-        const [dept, tabs] = await Promise.all([
+        const [dept, tabs, plans] = await Promise.all([
           AsyncStorage.getItem('department'),
           AsyncStorage.getItem('selectedTabs'),
+          AsyncStorage.getItem('plansEnabled'),
         ]);
         if (dept) setDepartmentState(dept as Department);
         if (tabs) setSelectedTabsState(JSON.parse(tabs));
+        if (plans !== null) setPlansEnabledState(JSON.parse(plans));
       } catch (_) {}
     })();
   }, []);
@@ -134,6 +139,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem('selectedTabs', JSON.stringify(normalized));
   };
 
+  const setPlansEnabled = async (val: boolean) => {
+    setPlansEnabledState(val);
+    await AsyncStorage.setItem('plansEnabled', JSON.stringify(val));
+  };
+
   const { visibleTabs, overflowTabs, showMoreTab } = computeVisibility(selectedTabs);
 
   return (
@@ -144,8 +154,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         visibleTabs,
         overflowTabs,
         showMoreTab,
+        plansEnabled,
         setDepartment,
         setSelectedTabs,
+        setPlansEnabled,
       }}
     >
       {children}

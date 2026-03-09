@@ -9,12 +9,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { fetchProductBySku, fetchTextSearch } from '../../services/scraper';
 import { useFocusEffect } from '@react-navigation/native';
 import { GestureHandlerRootView, PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
 import { initDatabase, addComponent } from '@/services/database';
 import { detectComponentCategory, extractComponentSpecs } from '@/services/componentDetector';
 import { useSettings } from '@/contexts/SettingsContext';
+import PlansModal from '@/components/PlansModal';
 import type { ItemList, ListItem } from './list';
 
 const LIST_STORAGE_KEY = 'itemLists';
@@ -66,6 +68,7 @@ const processBarcodeData = (scannedData) => {
 export default function ScanScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const insets = useSafeAreaInsets();
   const [sku, setSku] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -94,8 +97,10 @@ export default function ScanScreen() {
   const [textResults, setTextResults] = useState<{sku: string, name: string, price: string | null, url: string, imageUrl: string | null, stockText: string | null}[]>([]);
   const [textSearchLoading, setTextSearchLoading] = useState(false);
 
-  const { selectedTabs } = useSettings();
+  const { selectedTabs, plansEnabled, department } = useSettings();
   const listTabActive = selectedTabs.includes('list');
+
+  const [plansModalVisible, setPlansModalVisible] = useState(false);
   
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
@@ -604,6 +609,16 @@ export default function ScanScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
+
+      {/* Plans brochure icon — top-right, visible only when Plans is enabled */}
+      {plansEnabled && (
+        <TouchableOpacity
+          style={[styles.plansIconBtn, { top: insets.top + 12 }]}
+          onPress={() => setPlansModalVisible(true)}
+        >
+          <Ionicons name="reader-outline" size={28} color={colors.tint} />
+        </TouchableOpacity>
+      )}
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
@@ -954,6 +969,13 @@ export default function ScanScreen() {
           </TouchableOpacity>
         </GestureHandlerRootView>
       </Modal>
+
+      {/* Plans Modal */}
+      <PlansModal
+        visible={plansModalVisible}
+        onClose={() => setPlansModalVisible(false)}
+        department={department}
+      />
     </View>
   );
 }
@@ -1003,6 +1025,7 @@ const styles = StyleSheet.create({
   fullScreenTouchable: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' },
   fullScreenImage: { width: '100%', height: '100%' },
   closeButton: { position: 'absolute', top: 50, right: 20, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 25, padding: 5 },
+  plansIconBtn: { position: 'absolute', top: 15, right: 18, zIndex: 5, padding: 6 },
   listPickerOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   listPickerBox:       { borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 24, paddingBottom: 36 },
   listPickerTitle:     { fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },

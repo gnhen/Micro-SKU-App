@@ -27,7 +27,7 @@ export default function SettingsScreen() {
   const [storeModalVisible, setStoreModalVisible] = useState(false);
   const [deptModalVisible, setDeptModalVisible] = useState(false);
 
-  const { department, selectedTabs, setDepartment, setSelectedTabs, showMoreTab } = useSettings();
+  const { department, selectedTabs, setDepartment, setSelectedTabs, showMoreTab, plansEnabled, setPlansEnabled } = useSettings();
 
   useFocusEffect(
     React.useCallback(() => {
@@ -141,6 +141,21 @@ export default function SettingsScreen() {
             <Text style={[styles.label, { color: theme.text }]}>Settings</Text>
           </View>
           <Switch value={true} disabled thumbColor="#fff" trackColor={{ true: '#0173DF' }} />
+        </View>
+
+        {/* ── Plans ── */}
+        <Text style={[styles.sectionLabel, { color: '#aaa', marginTop: 20 }]}>PLANS</Text>
+        <View style={[styles.settingRow, { borderBottomColor: theme.border }]}>
+          <View style={styles.tabRowLeft}>
+            <Ionicons name="reader-outline" size={20} color="#aaa" style={styles.tabIcon} />
+            <Text style={[styles.label, { color: theme.text }]}>Plans</Text>
+          </View>
+          <Switch
+            value={plansEnabled}
+            onValueChange={(val) => setPlansEnabled(val)}
+            thumbColor="#fff"
+            trackColor={{ true: '#0173DF', false: '#ccc' }}
+          />
         </View>
 
         {/* ── Store ── */}
