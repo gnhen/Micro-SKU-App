@@ -16,6 +16,7 @@ import { Colors } from '@/constants/theme';
 import { initDatabase, addComponent } from '@/services/database';
 import { detectComponentCategory, extractComponentSpecs } from '@/services/componentDetector';
 import { useSettings } from '@/contexts/SettingsContext';
+import { lookupUiCare } from '@/constants/uiCareData';
 import PlansModal from '@/components/PlansModal';
 import type { ItemList, ListItem } from './list';
 
@@ -774,6 +775,24 @@ export default function ScanScreen() {
               </Text>
             )}
           </View>
+
+          {/* UI Care Banner */}
+          {(() => {
+            const ui = lookupUiCare(String(data.sku));
+            if (!ui) return null;
+            const noUiCare = ui.uiCareProduct === 'No UI Care For This Product';
+            const carePrice = ui.uiCarePrice === 'NA' ? 'NA' : `$${ui.uiCarePrice}`;
+            return (
+              <View style={styles.uiCareBanner}>
+                <Text style={styles.uiCareText}>
+                  {noUiCare
+                    ? 'No UI Care'
+                    : `UI CARE | ${ui.productDesc} | ${ui.uiCareProduct} | ${carePrice}`}
+                </Text>
+              </View>
+            );
+          })()}
+
           <Text selectable style={[styles.productTitle, { color: theme.text }]}>{data.name}</Text>
 
           {/* Reviews Section */}
@@ -1044,4 +1063,6 @@ const styles = StyleSheet.create({
   textStockBadge:      { alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5 },
   textStockBadgeText:  { color: 'white', fontSize: 11, fontWeight: 'bold' },
   textResultPrice:     { fontSize: 16, fontWeight: 'bold', color: '#C00', minWidth: 60, textAlign: 'right' },
+  uiCareBanner:        { backgroundColor: '#FFD700', borderRadius: 6, paddingVertical: 8, paddingHorizontal: 12, marginTop: 10, marginBottom: 4 },
+  uiCareText:          { color: '#C00', fontWeight: '700', fontSize: 13 },
 });
