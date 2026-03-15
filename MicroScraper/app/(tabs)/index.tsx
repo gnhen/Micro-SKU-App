@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Text, View, TextInput, TouchableOpacity, ScrollView, 
-  StyleSheet, Alert, Image, Modal, Dimensions, StatusBar, Linking, ActivityIndicator
+  StyleSheet, Alert, Image, Modal, Dimensions, PixelRatio, StatusBar, Linking, ActivityIndicator
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -9,7 +9,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { fetchProductBySku, fetchTextSearch } from '../../services/scraper';
 import { useFocusEffect } from '@react-navigation/native';
 import { GestureHandlerRootView, PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
@@ -17,6 +16,9 @@ import { initDatabase, addComponent } from '@/services/database';
 import { detectComponentCategory, extractComponentSpecs } from '@/services/componentDetector';
 import { useSettings } from '@/contexts/SettingsContext';
 import { lookupUiCare } from '@/constants/uiCareData';
+import { lookupStore071MergedCode, lookupStore071MergedCodes } from '@/constants/store071Lookup';
+import { findStore071MapEntries, STORE_071_MAP_IMAGE, STORE_071_MAP_IMAGE_WIDTH, STORE_071_MAP_IMAGE_HEIGHT, STORE_071_MAP_PAGE_HEIGHT, STORE_071_MAP_PAGE_WIDTH } from '@/constants/store071MapIndex';
+import type { Store071MapEntry } from '@/constants/store071MapIndex';
 import PlansModal from '@/components/PlansModal';
 import type { ItemList, ListItem } from './list';
 
@@ -69,7 +71,6 @@ const processBarcodeData = (scannedData) => {
 export default function ScanScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const insets = useSafeAreaInsets();
   const [sku, setSku] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -79,7 +80,8 @@ export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [storeId, setStoreId] = useState('071');
   const [expandedSpecs, setExpandedSpecs] = useState(true);
-  const [fullScreenImage, setFullScreenImage] = useState(null);
+  const [fullScreenImage, setFullScreenImage] = useState<string | number | null>(null);
+  const [mapOverlayNotice, setMapOverlayNotice] = useState<string | null>(null);
   const [validImageUrls, setValidImageUrls] = useState([]);
   const [scannerEnabled, setScannerEnabled] = useState(true);
   const [addingToBuilder, setAddingToBuilder] = useState(false);
@@ -91,12 +93,18 @@ export default function ScanScreen() {
 
   const mismatchAlertActive = useRef(false);
   const noResultsAlertActive = useRef(false);
+    const mapMinScaleRef = useRef(1);
 
   // Text search mode
   const [textSearchMode, setTextSearchMode] = useState(false);
   const [textQuery, setTextQuery] = useState('');
   const [textResults, setTextResults] = useState<{sku: string, name: string, price: string | null, url: string, imageUrl: string | null, stockText: string | null}[]>([]);
   const [textSearchLoading, setTextSearchLoading] = useState(false);
+  const [store071MergedCode, setStore071MergedCode] = useState<string | null>(null);
+  const [store071MergedCodes, setStore071MergedCodes] = useState<string[]>([]);
+  const [mapMatches, setMapMatches] = useState<Store071MapEntry[]>([]);
+  const [mapMatchIndex, setMapMatchIndex] = useState(0);
+  const [mapSearchCode, setMapSearchCode] = useState<string | null>(null);
 
   const { selectedTabs, plansEnabled, department } = useSettings();
   const listTabActive = selectedTabs.includes('list');
@@ -110,6 +118,10 @@ export default function ScanScreen() {
   const savedTranslateX = useSharedValue(0);
   const savedTranslateY = useSharedValue(0);
 
+  const _pr = PixelRatio.get();
+  const MAP_LOGICAL_W = STORE_071_MAP_IMAGE_WIDTH / _pr;
+  const MAP_LOGICAL_H = STORE_071_MAP_IMAGE_HEIGHT / _pr;
+
   const resetImageTransform = () => {
     scale.value = 1;
     savedScale.value = 1;
@@ -117,6 +129,7 @@ export default function ScanScreen() {
     translateY.value = 0;
     savedTranslateX.value = 0;
     savedTranslateY.value = 0;
+    mapMinScaleRef.current = 1;
   };
 
   const onPinchGesture = (event) => {
@@ -125,9 +138,10 @@ export default function ScanScreen() {
 
   const onPinchEnd = (event) => {
     savedScale.value = scale.value;
-    if (scale.value < 1) {
-      scale.value = withSpring(1);
-      savedScale.value = 1;
+      const minScale = fullScreenImage === STORE_071_MAP_IMAGE ? mapMinScaleRef.current : 1;
+      if (scale.value < minScale) {
+        scale.value = withSpring(minScale);
+        savedScale.value = minScale;
       translateX.value = withSpring(0);
       translateY.value = withSpring(0);
       savedTranslateX.value = 0;
@@ -143,6 +157,88 @@ export default function ScanScreen() {
   const onPanEnd = () => {
     savedTranslateX.value = translateX.value;
     savedTranslateY.value = translateY.value;
+  };
+
+  const focusMapEntry = (entry: Store071MapEntry) => {
+    const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+    const displayFitScale = Math.min(screenWidth / MAP_LOGICAL_W, screenHeight / MAP_LOGICAL_H);
+    mapMinScaleRef.current = displayFitScale;
+
+    const avgX = (entry.xMin + entry.xMax) / 2;
+    const avgY = (entry.yMin + entry.yMax) / 2;
+
+    const matchImgW = Math.max(
+      MAP_LOGICAL_W * (entry.xMax - entry.xMin) / STORE_071_MAP_PAGE_WIDTH,
+      MAP_LOGICAL_W * 0.005,
+    );
+    const matchImgH = Math.max(
+      MAP_LOGICAL_H * (entry.yMax - entry.yMin) / STORE_071_MAP_PAGE_HEIGHT,
+      MAP_LOGICAL_H * 0.005,
+    );
+
+    const targetZoomX = (screenWidth * 0.35) / (matchImgW * displayFitScale);
+    const targetZoomY = (screenHeight * 0.35) / (matchImgH * displayFitScale);
+    const targetZoom = Math.max(1.8, Math.min(4.5, Math.min(targetZoomX, targetZoomY)));
+    const targetScale = displayFitScale * targetZoom;
+
+    scale.value = targetScale;
+    savedScale.value = targetScale;
+
+    const targetTranslateX = MAP_LOGICAL_W * (0.5 - avgX / STORE_071_MAP_PAGE_WIDTH) * targetScale;
+    const targetTranslateY = MAP_LOGICAL_H * (0.5 - avgY / STORE_071_MAP_PAGE_HEIGHT) * targetScale;
+
+    translateX.value = targetTranslateX;
+    translateY.value = targetTranslateY;
+    savedTranslateX.value = targetTranslateX;
+    savedTranslateY.value = targetTranslateY;
+  };
+
+  const focusMapMatchAtIndex = (nextIndex: number) => {
+    if (mapMatches.length === 0) return;
+    const wrapped = (nextIndex + mapMatches.length) % mapMatches.length;
+    setMapMatchIndex(wrapped);
+    focusMapEntry(mapMatches[wrapped]);
+    setMapOverlayNotice(null);
+  };
+
+  const handlePrevMapMatch = () => focusMapMatchAtIndex(mapMatchIndex - 1);
+  const handleNextMapMatch = () => focusMapMatchAtIndex(mapMatchIndex + 1);
+
+  const openStoreMapForCodes = (locationCodes: string[]) => {
+    resetImageTransform();
+
+    const codes = Array.from(new Set(
+      locationCodes
+        .map(code => String(code ?? '').trim())
+        .filter(code => code.length > 0)
+    ));
+
+    const seen = new Set<string>();
+    const matches: Store071MapEntry[] = [];
+
+    for (const code of codes) {
+      const codeMatches = findStore071MapEntries(code);
+      for (const entry of codeMatches) {
+        const key = `${entry.text}|${entry.xMin}|${entry.yMin}|${entry.xMax}|${entry.yMax}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        matches.push(entry);
+      }
+    }
+
+    setMapSearchCode(codes[0] ?? null);
+    setMapMatches(matches);
+    setMapMatchIndex(0);
+
+    if (matches.length > 0) {
+      focusMapEntry(matches[0]);
+      setMapOverlayNotice(null);
+    } else {
+      const fallbackCode = codes[0] ?? null;
+      setMapOverlayNotice(fallbackCode ? `Location ${fallbackCode} not found on map` : 'No location available');
+    }
+
+    setFullScreenImage(STORE_071_MAP_IMAGE);
   };
 
   const animatedStyle = useAnimatedStyle(() => {
@@ -440,6 +536,8 @@ export default function ScanScreen() {
     setScanning(false);
     setData(null);
     setError(null);
+    setStore071MergedCode(null);
+    setStore071MergedCodes([]);
     
     try {
       console.log(`[handleSearch] Starting search - SKU: ${targetSku}, isUPC: ${isUPC}, fromBarcodeScan: ${fromBarcodeScan}`);
@@ -518,11 +616,15 @@ export default function ScanScreen() {
        // If it was a URL, update the input field to the clean SKU so it looks nice
        if (isURL) setSku(result.sku);
        setData(finalData);
+       setStore071MergedCode(lookupStore071MergedCode(String(finalData.sku ?? '')));
+       setStore071MergedCodes(lookupStore071MergedCodes(String(finalData.sku ?? '')));
        setValidImageUrls(result.imageUrls || []);
        addToHistory(finalData);
     } else {
       const finalData = { ...result, sku: targetSku };
       setData(finalData);
+      setStore071MergedCode(lookupStore071MergedCode(String(finalData.sku ?? '')));
+      setStore071MergedCodes(lookupStore071MergedCodes(String(finalData.sku ?? '')));
       setValidImageUrls(result.imageUrls || []);
       addToHistory(finalData);
     }
@@ -611,20 +713,19 @@ export default function ScanScreen() {
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
 
-      {/* Plans brochure icon — top-right, visible only when Plans is enabled */}
-      {plansEnabled && (
-        <TouchableOpacity
-          style={[styles.plansIconBtn, { top: insets.top + 12 }]}
-          onPress={() => setPlansModalVisible(true)}
-        >
-          <Ionicons name="reader-outline" size={28} color={colors.tint} />
-        </TouchableOpacity>
-      )}
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
       >
         <View style={styles.header}>
+          {plansEnabled && (
+            <TouchableOpacity
+              style={styles.plansIconBtn}
+              onPress={() => setPlansModalVisible(true)}
+            >
+              <Ionicons name="reader-outline" size={28} color={colors.tint} />
+            </TouchableOpacity>
+          )}
           <Text style={[styles.appTitle, { color: theme.text }]}>Micro SKU App</Text>
           {storeId === '071' && <Text style={styles.tagline}>Sharonville Rocks</Text>}
         </View>
@@ -744,7 +845,16 @@ export default function ScanScreen() {
           {validImageUrls && validImageUrls.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.imageGallery}>
               {validImageUrls.map((imgUrl, idx) => (
-                <TouchableOpacity key={idx} onPress={() => setFullScreenImage(imgUrl)}>
+                <TouchableOpacity
+                  key={idx}
+                  onPress={() => {
+                    setMapOverlayNotice(null);
+                    setMapMatches([]);
+                    setMapMatchIndex(0);
+                    setMapSearchCode(null);
+                    setFullScreenImage(imgUrl);
+                  }}
+                >
                   <Image 
                     source={{ uri: imgUrl }} 
                     style={styles.productImage}
@@ -795,19 +905,35 @@ export default function ScanScreen() {
 
           <Text selectable style={[styles.productTitle, { color: theme.text }]}>{data.name}</Text>
 
-          {/* Reviews Section */}
-          {data.reviews && data.reviews.rating > 0 && (
-            <View style={styles.reviewsContainer}>
-              <View style={styles.reviewsRow}>
-                <Text selectable style={[styles.reviewStars, { color: '#FFB800' }]}>
-                  {'★'.repeat(Math.round(data.reviews.rating))}{'☆'.repeat(5 - Math.round(data.reviews.rating))}
-                </Text>
-                <Text selectable style={[styles.reviewText, { color: theme.text }]}>
-                  {data.reviews.rating.toFixed(1)}
-                </Text>
+          {/* Reviews + Store Area/Zone Code */}
+          <View style={styles.reviewsContainer}>
+            <View style={styles.reviewsRow}>
+              <View style={styles.reviewsLeft}>
+                {data.reviews && data.reviews.rating > 0 && (
+                  <>
+                    <Text selectable style={[styles.reviewStars, { color: '#FFB800' }]}> 
+                      {'★'.repeat(Math.round(data.reviews.rating))}{'☆'.repeat(5 - Math.round(data.reviews.rating))}
+                    </Text>
+                    <Text selectable style={[styles.reviewText, { color: theme.text }]}> 
+                      {data.reviews.rating.toFixed(1)}
+                    </Text>
+                  </>
+                )}
               </View>
+              <TouchableOpacity
+                style={styles.storeDatCodeButton}
+                activeOpacity={0.85}
+                onPress={() => {
+                  const codes = store071MergedCodes.length > 0
+                    ? store071MergedCodes
+                    : (store071MergedCode ? [store071MergedCode] : []);
+                  openStoreMapForCodes(codes);
+                }}
+              >
+                <Text style={styles.storeDatCodeButtonText}>Find Item</Text>
+              </TouchableOpacity>
             </View>
-          )}
+          </View>
 
           {/* Location */}
           {data.location && (
@@ -950,6 +1076,10 @@ export default function ScanScreen() {
         transparent={true}
         onRequestClose={() => {
           resetImageTransform();
+          setMapOverlayNotice(null);
+          setMapMatches([]);
+          setMapMatchIndex(0);
+          setMapSearchCode(null);
           setFullScreenImage(null);
         }}
       >
@@ -959,28 +1089,63 @@ export default function ScanScreen() {
             onEnded={onPanEnd}
             simultaneousHandlers={['pinch']}
           >
-            <Animated.View style={{ flex: 1, width: '100%' }}>
+            <Animated.View style={styles.fullScreenGestureSurface}>
               <PinchGestureHandler 
                 onGestureEvent={onPinchGesture}
                 onEnded={onPinchEnd}
                 simultaneousHandlers={['pan']}
               >
-                <Animated.View style={[styles.fullScreenTouchable, animatedStyle]}>
-                  {fullScreenImage && (
+                <Animated.View
+                  style={[
+                    styles.fullScreenTouchable,
+                    fullScreenImage === STORE_071_MAP_IMAGE
+                      ? { width: MAP_LOGICAL_W, height: MAP_LOGICAL_H }
+                      : styles.fullScreenFit,
+                    animatedStyle,
+                  ]}
+                >
+                  {fullScreenImage !== null && (
                     <Image
-                      source={{ uri: fullScreenImage }}
-                      style={styles.fullScreenImage}
+                      source={typeof fullScreenImage === 'number' ? fullScreenImage : { uri: fullScreenImage }}
+                      style={
+                        fullScreenImage === STORE_071_MAP_IMAGE
+                          ? { width: MAP_LOGICAL_W, height: MAP_LOGICAL_H }
+                          : styles.fullScreenImage
+                      }
                       resizeMode="contain"
+                      resizeMethod="scale"
+                      fadeDuration={0}
                     />
                   )}
                 </Animated.View>
               </PinchGestureHandler>
             </Animated.View>
           </PanGestureHandler>
+          {fullScreenImage === STORE_071_MAP_IMAGE && mapMatches.length > 0 ? (
+            <View style={styles.mapNoticeBanner}>
+              <TouchableOpacity style={styles.mapArrowButton} onPress={handlePrevMapMatch}>
+                <Ionicons name="chevron-back" size={20} color="white" />
+              </TouchableOpacity>
+              <Text style={styles.mapNoticeText} numberOfLines={1}>
+                {`Map Location: ${(mapMatches[mapMatchIndex]?.text || mapSearchCode || 'Unknown')} (${mapMatchIndex + 1}/${mapMatches.length})`}
+              </Text>
+              <TouchableOpacity style={styles.mapArrowButton} onPress={handleNextMapMatch}>
+                <Ionicons name="chevron-forward" size={20} color="white" />
+              </TouchableOpacity>
+            </View>
+          ) : mapOverlayNotice ? (
+            <View style={styles.mapNoticeBanner}>
+              <Text style={styles.mapNoticeText}>{mapOverlayNotice}</Text>
+            </View>
+          ) : null}
           <TouchableOpacity 
             style={styles.closeButton}
             onPress={() => {
               resetImageTransform();
+              setMapOverlayNotice(null);
+              setMapMatches([]);
+              setMapMatchIndex(0);
+              setMapSearchCode(null);
               setFullScreenImage(null);
             }}
           >
@@ -1002,7 +1167,7 @@ export default function ScanScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 50 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 30 },
-  header: { marginTop: Dimensions.get('window').height * 0.15, marginBottom: 30, alignItems: 'center' },
+  header: { marginTop: Dimensions.get('window').height * 0.15, marginBottom: 30, alignItems: 'center', position: 'relative', width: '100%' },
   appTitle: { fontSize: 36, fontWeight: 'bold', color: '#000' },
   tagline: { fontSize: 14, color: '#999', marginTop: 4 },
   topSpacer: { height: '5%' },
@@ -1026,9 +1191,12 @@ const styles = StyleSheet.create({
   productTitle: { fontSize: 18, marginVertical: 10, fontWeight: '600' },
   infoText: { fontSize: 14, marginBottom: 5 },
   reviewsContainer: { marginVertical: 10 },
-  reviewsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  reviewsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  reviewsLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
   reviewStars: { fontSize: 18 },
   reviewText: { fontSize: 14, fontWeight: '500' },
+  storeDatCodeButton: { backgroundColor: '#C00', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 7 },
+  storeDatCodeButtonText: { color: 'white', fontSize: 13, fontWeight: '700' },
   servicesContainer: { marginVertical: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#ddd' },
   serviceText: { fontSize: 14, marginLeft: 10, marginBottom: 4 },
   specsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingVertical: 8 },
@@ -1041,10 +1209,15 @@ const styles = StyleSheet.create({
   addToBuilderButtonText: { fontWeight: 'bold', fontSize: 16 },
   cancelScanBtn: { position: 'absolute', bottom: 50, alignSelf: 'center', backgroundColor: 'red', padding: 15, borderRadius: 30 },
   fullScreenContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.98)', justifyContent: 'center', alignItems: 'center' },
-  fullScreenTouchable: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' },
+    fullScreenGestureSurface: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' },
+    fullScreenTouchable: { justifyContent: 'center', alignItems: 'center' },
+    fullScreenFit: { flex: 1, width: '100%' },
   fullScreenImage: { width: '100%', height: '100%' },
   closeButton: { position: 'absolute', top: 50, right: 20, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 25, padding: 5 },
-  plansIconBtn: { position: 'absolute', top: 15, right: 18, zIndex: 5, padding: 6 },
+  mapNoticeBanner: { position: 'absolute', left: 16, right: 16, top: 122, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  mapNoticeText: { color: 'white', fontSize: 13, fontWeight: '600', flex: 1, textAlign: 'center' },
+  mapArrowButton: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.18)' },
+  plansIconBtn: { position: 'absolute', top: -115, right: 0, zIndex: 5, padding: 6 },
   listPickerOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   listPickerBox:       { borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 24, paddingBottom: 36 },
   listPickerTitle:     { fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },
