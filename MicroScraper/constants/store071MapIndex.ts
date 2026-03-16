@@ -15,8 +15,8 @@ export const STORE_071_MAP_PAGE_WIDTH = 2448;
 export const STORE_071_MAP_PAGE_HEIGHT = 1584;
 export const STORE_071_MAP_IMAGE = require('../assets/071/storemap/storemap-page-1.png');
 
-export const STORE_071_MAP_IMAGE_WIDTH = 6800;
-export const STORE_071_MAP_IMAGE_HEIGHT = 4400;
+export const STORE_071_MAP_IMAGE_WIDTH = 4080;
+export const STORE_071_MAP_IMAGE_HEIGHT = 2640;
 
 const STORE_071_MAP_ENTRIES: Store071MapEntry[] = [
   { text: '79021', normalized: '79021', digits: '79021', xMin: 1644.046, yMin: 27.837, xMax: 1670.451, yMax: 35.835 },

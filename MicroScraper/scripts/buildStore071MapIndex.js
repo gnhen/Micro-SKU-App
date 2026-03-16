@@ -12,7 +12,7 @@ const mapAssetDir = path.join(__dirname, '../assets/071/storemap');
 const imageBasePath = path.join(mapAssetDir, 'storemap-page-1');
 const imagePath = `${imageBasePath}.png`;
 const outPath = path.join(__dirname, '../constants/store071MapIndex.ts');
-const MAP_RENDER_DPI = 200;
+const MAP_RENDER_DPI = 120;
 
 const decodeHtmlEntities = (value) => value
   .replace(/&amp;/g, '&')

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Text, View, TextInput, TouchableOpacity, ScrollView, 
-  StyleSheet, Alert, Image, Modal, Dimensions, PixelRatio, StatusBar, Linking, ActivityIndicator
+  StyleSheet, Alert, Image, Modal, Dimensions, PixelRatio, Platform, StatusBar, Linking, ActivityIndicator
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -920,18 +920,20 @@ export default function ScanScreen() {
                   </>
                 )}
               </View>
-              <TouchableOpacity
-                style={styles.storeDatCodeButton}
-                activeOpacity={0.85}
-                onPress={() => {
-                  const codes = store071MergedCodes.length > 0
-                    ? store071MergedCodes
-                    : (store071MergedCode ? [store071MergedCode] : []);
-                  openStoreMapForCodes(codes);
-                }}
-              >
-                <Text style={styles.storeDatCodeButtonText}>Find Item</Text>
-              </TouchableOpacity>
+              {storeId === '071' && (
+                <TouchableOpacity
+                  style={styles.storeDatCodeButton}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    const codes = store071MergedCodes.length > 0
+                      ? store071MergedCodes
+                      : (store071MergedCode ? [store071MergedCode] : []);
+                    openStoreMapForCodes(codes);
+                  }}
+                >
+                  <Text style={styles.storeDatCodeButtonText}>Find Item</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
@@ -1112,8 +1114,8 @@ export default function ScanScreen() {
                           ? { width: MAP_LOGICAL_W, height: MAP_LOGICAL_H }
                           : styles.fullScreenImage
                       }
-                      resizeMode="contain"
-                      resizeMethod="scale"
+                      resizeMode={fullScreenImage === STORE_071_MAP_IMAGE ? 'stretch' : 'contain'}
+                      resizeMethod={fullScreenImage === STORE_071_MAP_IMAGE && Platform.OS === 'android' ? 'none' : 'scale'}
                       fadeDuration={0}
                     />
                   )}
