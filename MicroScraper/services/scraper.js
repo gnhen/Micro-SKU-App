@@ -178,6 +178,26 @@ const extractStock = (html, storeId) => {
   return { stockText, stock, inStock };
 };
 
+const extractOpenBoxText = (html) => {
+  const buttonMatch = html.match(/<button[^>]*class=['"][^'"]*openBoxModalButton[^'"]*['"][^>]*>([\s\S]*?)<\/button>/i);
+  if (!buttonMatch) return null;
+
+  const cleanedText = decodeHtml(
+    buttonMatch[1]
+      .replace(/<i[\s\S]*?<\/i>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+
+  const exactMatch = cleanedText.match(/(\d+)\s+Open\s+Box:\s*(from\s*\$[0-9,]+(?:\.[0-9]{2})?)/i);
+  if (!exactMatch) return null;
+
+  const count = exactMatch[1];
+  const fromPriceText = exactMatch[2].replace(/\s+/g, ' ').trim();
+  return `${count} Open Box: ${fromPriceText}`;
+};
+
 const extractSpecsFromFeatures = (html) => {
   const specs = [];
   
@@ -562,6 +582,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
     const protectionPlans = extractProtectionPlans(productHtml);
     
     const stockInfo = extractStock(productHtml, storeId);
+    const openBoxText = extractOpenBoxText(productHtml);
     
     const location = extractLocation(productHtml);
 
@@ -636,6 +657,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
       stockText: stockInfo.stockText,
       stock: stockInfo.stock,
       inStock: stockInfo.inStock,
+      openBoxText,
       location,
       imageUrl,
       imageUrls,

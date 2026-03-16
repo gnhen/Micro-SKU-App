@@ -23,6 +23,8 @@ import PlansModal from '@/components/PlansModal';
 import type { ItemList, ListItem } from './list';
 
 const LIST_STORAGE_KEY = 'itemLists';
+const HOME_TITLE_KEY = 'homeScreenTitle';
+const DEFAULT_HOME_TITLE = 'Micro SKU App';
 
 // Helper function to process scanned barcode data
 const processBarcodeData = (scannedData) => {
@@ -79,6 +81,9 @@ export default function ScanScreen() {
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [storeId, setStoreId] = useState('071');
+  const [homeTitle, setHomeTitle] = useState(DEFAULT_HOME_TITLE);
+  const [showTitleEditModal, setShowTitleEditModal] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(DEFAULT_HOME_TITLE);
   const [expandedSpecs, setExpandedSpecs] = useState(true);
   const [fullScreenImage, setFullScreenImage] = useState<string | number | null>(null);
   const [mapOverlayNotice, setMapOverlayNotice] = useState<string | null>(null);
@@ -256,6 +261,13 @@ export default function ScanScreen() {
       AsyncStorage.getItem('storeId').then(id => {
         if (id) setStoreId(id);
       });
+      AsyncStorage.getItem(HOME_TITLE_KEY).then(value => {
+        if (value && value.trim()) {
+          setHomeTitle(value.trim());
+        } else {
+          setHomeTitle(DEFAULT_HOME_TITLE);
+        }
+      });
       // Check for pending search from history
       AsyncStorage.getItem('pendingSearch').then(async (pendingSku) => {
         if (pendingSku) {
@@ -323,6 +335,22 @@ export default function ScanScreen() {
     border: colors.border,
     inputBg: colors.background,
     primary: colors.tint,
+  };
+
+  const openTitleEditor = () => {
+    setTitleDraft(homeTitle || DEFAULT_HOME_TITLE);
+    setShowTitleEditModal(true);
+  };
+
+  const saveTitleEditor = async () => {
+    const nextTitle = titleDraft.trim() || DEFAULT_HOME_TITLE;
+    setHomeTitle(nextTitle);
+    setShowTitleEditModal(false);
+    try {
+      await AsyncStorage.setItem(HOME_TITLE_KEY, nextTitle);
+    } catch (e) {
+      console.warn('Failed to persist home title:', e);
+    }
   };
 
   const addToHistory = async (productData) => {
@@ -718,6 +746,14 @@ export default function ScanScreen() {
         showsVerticalScrollIndicator={true}
       >
         <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.appTitlePressable}
+            activeOpacity={0.9}
+            delayLongPress={250}
+            onLongPress={openTitleEditor}
+          >
+            <Text style={[styles.appTitle, { color: theme.text }]}>{homeTitle}</Text>
+          </TouchableOpacity>
           {plansEnabled && (
             <TouchableOpacity
               style={styles.plansIconBtn}
@@ -726,29 +762,9 @@ export default function ScanScreen() {
               <Ionicons name="reader-outline" size={28} color={colors.tint} />
             </TouchableOpacity>
           )}
-          <Text style={[styles.appTitle, { color: theme.text }]}>Micro SKU App</Text>
-          {storeId === '071' && <Text style={styles.tagline}>Sharonville Rocks</Text>}
         </View>
         <View style={styles.searchWrapper}>
           <View style={styles.searchBox}>
-            <TouchableOpacity
-              style={[styles.scanButton, styles.textSearchToggleBtn, textSearchMode && styles.textSearchToggleActive]}
-              onPress={() => {
-                const next = !textSearchMode;
-                setTextSearchMode(next);
-                if (!next) {
-                  // Leaving text mode: clear everything
-                  setTextQuery('');
-                  setTextResults([]);
-                  setError(null);
-                } else if (textQuery.trim()) {
-                  // Re-entering text mode with a previous query: auto-search
-                  handleTextSearch();
-                }
-              }}
-            >
-              <Ionicons name={textSearchMode ? 'barcode-outline' : 'search-outline'} size={24} color="white" />
-            </TouchableOpacity>
             <TextInput
               style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]}
               value={textSearchMode ? textQuery : sku}
@@ -759,23 +775,45 @@ export default function ScanScreen() {
               returnKeyType={textSearchMode ? 'search' : 'done'}
               onSubmitEditing={textSearchMode ? handleTextSearch : undefined}
             />
-            {!textSearchMode && (
-              <TouchableOpacity style={styles.scanButton} onPress={() => setScanning(true)}>
-                <Ionicons name="scan" size={24} color="white" />
-              </TouchableOpacity>
-            )}
           </View>
 
-          <TouchableOpacity
-            style={[styles.button, textSearchMode && styles.buttonTextMode]}
-            onPress={() => textSearchMode ? handleTextSearch() : handleSearch(null)}
-            disabled={textSearchLoading}
-          >
-            {textSearchLoading
-              ? <ActivityIndicator color="white" />
-              : <Text style={styles.buttonText}>{textSearchMode ? 'Search' : 'Search Product'}</Text>
-            }
-          </TouchableOpacity>
+          <View style={styles.searchActionsRow}>
+            <TouchableOpacity
+              style={[styles.searchActionButtonBase, styles.textSearchSmallButton, styles.textSearchToggleBtn, textSearchMode && styles.textSearchToggleActive]}
+              onPress={() => {
+                const next = !textSearchMode;
+                setTextSearchMode(next);
+                if (!next) {
+                  setTextQuery('');
+                  setTextResults([]);
+                  setError(null);
+                } else if (textQuery.trim()) {
+                  handleTextSearch();
+                }
+              }}
+            >
+              <Text style={styles.textSearchSmallButtonText}>Text Search</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.button, styles.searchActionButtonBase, styles.searchMainButton, textSearchMode && styles.buttonTextMode]}
+              onPress={() => textSearchMode ? handleTextSearch() : handleSearch(null)}
+              disabled={textSearchLoading}
+            >
+              {textSearchLoading
+                ? <ActivityIndicator color="white" />
+                : <Text style={styles.buttonText}>{textSearchMode ? 'Search' : 'Submit'}</Text>
+              }
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.searchActionButtonBase, styles.scanActionButton]}
+              onPress={() => setScanning(true)}
+            >
+              <Ionicons name="scan" size={18} color="white" />
+              <Text style={styles.scanActionButtonText}>Scan</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {(loading || textSearchLoading) && (
@@ -879,11 +917,24 @@ export default function ScanScreen() {
           
           <View style={styles.priceRow}>
             <Text selectable style={styles.price}>{data.price}</Text>
-            {data.stockText && (
-              <Text selectable style={[styles.stockText, { color: data.inStock ? '#00AA00' : '#DDAA00' }]}>
-                {data.stockText}
-              </Text>
-            )}
+            {(() => {
+              const rawStockText = String(data.stockText ?? '').trim();
+              const qtyMatch = rawStockText.match(/^(\d+)/);
+              const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : null;
+              const isSoldOut =
+                data.inStock === false ||
+                /sold\s*out|out\s*of\s*stock/i.test(rawStockText) ||
+                qty === 0;
+              const displayStockText = isSoldOut ? 'Sold Out' : (rawStockText || null);
+
+              if (!displayStockText) return null;
+
+              return (
+                <Text selectable style={[styles.stockText, { color: isSoldOut ? '#C00' : '#00AA00' }]}>
+                  {displayStockText}
+                </Text>
+              );
+            })()}
           </View>
 
           {/* UI Care Banner */}
@@ -904,6 +955,9 @@ export default function ScanScreen() {
           })()}
 
           <Text selectable style={[styles.productTitle, { color: theme.text }]}>{data.name}</Text>
+          {data.openBoxText ? (
+            <Text selectable style={styles.openBoxText}>{data.openBoxText}</Text>
+          ) : null}
 
           {/* Reviews + Store Area/Zone Code */}
           <View style={styles.reviewsContainer}>
@@ -1028,6 +1082,45 @@ export default function ScanScreen() {
         </View>
       )}
       </ScrollView>
+
+      {/* Full Screen Image Modal */}
+      <Modal
+        visible={showTitleEditModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowTitleEditModal(false)}
+      >
+        <View style={styles.titleEditOverlay}>
+          <View style={[styles.titleEditCard, { backgroundColor: theme.card, borderColor: theme.border }] }>
+            <Text style={[styles.titleEditHeading, { color: theme.text }]}>Edit Header Title</Text>
+            <TextInput
+              style={[styles.titleEditInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]}
+              value={titleDraft}
+              onChangeText={setTitleDraft}
+              placeholder={DEFAULT_HOME_TITLE}
+              placeholderTextColor="gray"
+              maxLength={40}
+              returnKeyType="done"
+              onSubmitEditing={saveTitleEditor}
+              autoFocus
+            />
+            <View style={styles.titleEditActions}>
+              <TouchableOpacity
+                style={[styles.titleEditButton, styles.titleEditCancel]}
+                onPress={() => setShowTitleEditModal(false)}
+              >
+                <Text style={styles.titleEditCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.titleEditButton, styles.titleEditSave]}
+                onPress={saveTitleEditor}
+              >
+                <Text style={styles.titleEditSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Full Screen Image Modal */}
       <Modal
@@ -1169,15 +1262,22 @@ export default function ScanScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 50 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 30 },
-  header: { marginTop: Dimensions.get('window').height * 0.15, marginBottom: 30, alignItems: 'center', position: 'relative', width: '100%' },
-  appTitle: { fontSize: 36, fontWeight: 'bold', color: '#000' },
+  header: { marginTop: 10, marginBottom: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' },
+  appTitlePressable: { flexShrink: 1 },
+  appTitle: { fontSize: 28, fontWeight: 'bold', color: '#000' },
   tagline: { fontSize: 14, color: '#999', marginTop: 4 },
   topSpacer: { height: '5%' },
-  searchWrapper: { marginBottom: 20, alignItems: 'center' },
-  searchBox: { flexDirection: 'row', marginBottom: 15, gap: 10, width: '100%', maxWidth: 400 },
+  searchWrapper: { marginTop: Dimensions.get('window').height * 0.25, marginBottom: 20, alignItems: 'center' },
+  searchBox: { flexDirection: 'row', marginBottom: 12, width: '100%', maxWidth: 400 },
+  searchActionsRow: { flexDirection: 'row', alignItems: 'center', width: '100%', maxWidth: 400, gap: 8 },
   input: { flex: 1, borderWidth: 1, padding: 12, borderRadius: 8, fontSize: 16, borderColor: '#ccc' },
-  scanButton: { backgroundColor: '#0173DF', padding: 12, borderRadius: 8, justifyContent: 'center', alignItems: 'center', width: 50 },
+  searchActionButtonBase: { height: 46, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
   button: { backgroundColor: '#0173DF', padding: 15, borderRadius: 8, alignItems: 'center' },
+  searchMainButton: { flex: 1.25, paddingVertical: 0, paddingHorizontal: 12 },
+  textSearchSmallButton: { paddingHorizontal: 10, minWidth: 96 },
+  textSearchSmallButtonText: { color: 'white', fontWeight: '700', fontSize: 13 },
+  scanActionButton: { backgroundColor: '#0a7a0a', paddingHorizontal: 10, minWidth: 82, flexDirection: 'row', gap: 6 },
+  scanActionButtonText: { color: 'white', fontWeight: '700', fontSize: 13 },
   buttonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   errorCard: { marginTop: 20, padding: 20, borderWidth: 2, borderRadius: 8, backgroundColor: '#FFF5F5' },
   errorText: { fontSize: 16, textAlign: 'center', lineHeight: 24 },
@@ -1191,6 +1291,7 @@ const styles = StyleSheet.create({
   price: { fontSize: 28, fontWeight: 'bold', color: '#C00' },
   stockText: { fontSize: 14, fontWeight: '600' },
   productTitle: { fontSize: 18, marginVertical: 10, fontWeight: '600' },
+  openBoxText: { fontSize: 14, fontWeight: '700', color: '#FFD700', marginTop: -6, marginBottom: 8 },
   infoText: { fontSize: 14, marginBottom: 5 },
   reviewsContainer: { marginVertical: 10 },
   reviewsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
@@ -1219,7 +1320,17 @@ const styles = StyleSheet.create({
   mapNoticeBanner: { position: 'absolute', left: 16, right: 16, top: 122, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
   mapNoticeText: { color: 'white', fontSize: 13, fontWeight: '600', flex: 1, textAlign: 'center' },
   mapArrowButton: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.18)' },
-  plansIconBtn: { position: 'absolute', top: -115, right: 0, zIndex: 5, padding: 6 },
+  plansIconBtn: { padding: 6 },
+  titleEditOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
+  titleEditCard: { width: '100%', maxWidth: 360, borderRadius: 12, borderWidth: 1, padding: 16 },
+  titleEditHeading: { fontSize: 17, fontWeight: '700', marginBottom: 12 },
+  titleEditInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
+  titleEditActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 14 },
+  titleEditButton: { borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9 },
+  titleEditCancel: { backgroundColor: '#E5E5E5' },
+  titleEditSave: { backgroundColor: '#0173DF' },
+  titleEditCancelText: { color: '#333', fontWeight: '700', fontSize: 14 },
+  titleEditSaveText: { color: 'white', fontWeight: '700', fontSize: 14 },
   listPickerOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   listPickerBox:       { borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 24, paddingBottom: 36 },
   listPickerTitle:     { fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },

@@ -190,6 +190,7 @@ export default function SettingsScreen() {
 
         <View style={{ height: 40 }} />
         <Text style={styles.versionText}>Build v{versionInfo.version} - by Grant Hendricks</Text>
+        {storeId === '071' && <Text style={[styles.versionText, { color: '#727272', fontWeight: '200', marginTop: 6 }]}>Sharonville Rocks</Text>}
         <View style={{ height: 30 }} />
       </ScrollView>
 
