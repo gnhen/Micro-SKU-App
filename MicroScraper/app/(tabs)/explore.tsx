@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Text, View, TextInput, TouchableOpacity, Modal, ScrollView, 
-  StyleSheet, Switch, StatusBar, Platform
+  StyleSheet, Switch, StatusBar, Platform, Alert, ActivityIndicator
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
@@ -134,6 +134,11 @@ export default function SettingsScreen() {
   const [storeModalVisible, setStoreModalVisible] = useState(false);
   const [deptModalVisible, setDeptModalVisible] = useState(false);
   const [deckModalVisible, setDeckModalVisible] = useState(false);
+  const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
+  const [feedbackName, setFeedbackName] = useState('');
+  const [feedbackStore, setFeedbackStore] = useState('');
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
 
   const { department, selectedTabs, setDepartment, setSelectedTabs, showMoreTab, plansEnabled, setPlansEnabled } = useSettings();
 
@@ -159,6 +164,50 @@ export default function SettingsScreen() {
   };
 
   const currentStoreName = STORES.find((s: any) => s.id === storeId)?.name || 'Unknown';
+
+  const openFeedbackModal = () => {
+    if (!feedbackStore.trim()) {
+      setFeedbackStore(`${storeId} - ${currentStoreName}`);
+    }
+    setFeedbackModalVisible(true);
+  };
+
+  const submitFeedback = async () => {
+    const name = feedbackName.trim();
+    const store = feedbackStore.trim();
+    const feedback = feedbackText.trim();
+
+    if (!name || !store || !feedback) {
+      Alert.alert('Missing Information', 'Please fill out Name, Store, and Feedback.');
+      return;
+    }
+
+    try {
+      setFeedbackSubmitting(true);
+      const response = await fetch('https://formspree.io/f/xaqppygq', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name, store, feedback }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Form submission failed (${response.status})`);
+      }
+
+      Alert.alert('Thanks!', 'Your feedback was submitted.');
+      setFeedbackModalVisible(false);
+      setFeedbackName('');
+      setFeedbackStore(`${storeId} - ${currentStoreName}`);
+      setFeedbackText('');
+    } catch (error: any) {
+      Alert.alert('Submission Failed', error?.message || 'Could not submit feedback right now.');
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
 
   // ── Tab toggle ──────────────────────────────────────────────────────────────
   const toggleTab = (route: TabRoute) => {
@@ -286,6 +335,17 @@ export default function SettingsScreen() {
           <Text style={{ color: theme.text, fontSize: 16 }}>System ({colorScheme === 'dark' ? 'Dark' : 'Light'})</Text>
         </View>
 
+        <TouchableOpacity
+          style={[styles.settingRow, { borderBottomColor: theme.border }]}
+          onPress={openFeedbackModal}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>Send Feedback</Text>
+          <View style={styles.rowRight}>
+            <Text style={{ color: '#0173DF', fontSize: 15 }}>Fill out Form</Text>
+            <Ionicons name="chevron-forward" size={16} color="#aaa" />
+          </View>
+        </TouchableOpacity>
+
         <TouchableOpacity 
           style={[styles.settingRow, { borderBottomColor: theme.border }]} 
           onPress={() => setStoreModalVisible(true)}
@@ -379,6 +439,65 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
+      {/* ── Feedback form ── */}
+      <Modal visible={feedbackModalVisible} animationType="slide" transparent>
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}> 
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Send Feedback</Text>
+
+            <Text style={[styles.feedbackLabel, { color: theme.text }]}>Name</Text>
+            <TextInput
+              style={[styles.feedbackInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bg }]}
+              value={feedbackName}
+              onChangeText={setFeedbackName}
+              placeholder="Your name"
+              placeholderTextColor="#999"
+            />
+
+            <Text style={[styles.feedbackLabel, { color: theme.text }]}>Store</Text>
+            <TextInput
+              style={[styles.feedbackInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bg }]}
+              value={feedbackStore}
+              onChangeText={setFeedbackStore}
+              placeholder="Store"
+              placeholderTextColor="#999"
+            />
+
+            <Text style={[styles.feedbackLabel, { color: theme.text }]}>Feedback</Text>
+            <TextInput
+              style={[styles.feedbackInput, styles.feedbackTextArea, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bg }]}
+              value={feedbackText}
+              onChangeText={setFeedbackText}
+              placeholder="Type your feedback"
+              placeholderTextColor="#999"
+              multiline
+              textAlignVertical="top"
+            />
+
+            <View style={styles.feedbackActions}>
+              <TouchableOpacity
+                style={[styles.feedbackActionBtn, styles.feedbackCancelBtn]}
+                onPress={() => setFeedbackModalVisible(false)}
+                disabled={feedbackSubmitting}
+              >
+                <Text style={styles.feedbackCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.feedbackActionBtn, styles.feedbackSubmitBtn]}
+                onPress={submitFeedback}
+                disabled={feedbackSubmitting}
+              >
+                {feedbackSubmitting
+                  ? <ActivityIndicator color="white" />
+                  : <Text style={styles.feedbackSubmitText}>Submit</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Deck meanings ── */}
       <Modal visible={deckModalVisible} animationType="slide" transparent>
         <View style={styles.modalContainer}>
@@ -447,6 +566,15 @@ const styles = StyleSheet.create({
   deckDataRow:{ flexDirection: 'row', borderBottomWidth: 1, paddingVertical: 8, paddingHorizontal: 10 },
   deckDeckCell:{ width: 85, fontSize: 13, fontWeight: '600' },
   deckDefinitionCell:{ flex: 1, fontSize: 13, lineHeight: 18 },
+  feedbackLabel: { fontSize: 14, fontWeight: '700', marginBottom: 6, marginTop: 4 },
+  feedbackInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 12 },
+  feedbackTextArea: { minHeight: 120 },
+  feedbackActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  feedbackActionBtn: { borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, minWidth: 90, alignItems: 'center' },
+  feedbackCancelBtn: { backgroundColor: '#e5e5e5' },
+  feedbackSubmitBtn: { backgroundColor: '#0173DF' },
+  feedbackCancelText: { color: '#333', fontWeight: '700' },
+  feedbackSubmitText: { color: 'white', fontWeight: '700' },
   storeOption:  { paddingVertical: 15, borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 },
   closeButton:  { marginTop: 20, backgroundColor: '#0173DF', padding: 15, borderRadius: 10, alignItems: 'center' },
 });
