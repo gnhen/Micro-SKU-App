@@ -1267,7 +1267,7 @@ const styles = StyleSheet.create({
   appTitle: { fontSize: 28, fontWeight: 'bold', color: '#000' },
   tagline: { fontSize: 14, color: '#999', marginTop: 4 },
   topSpacer: { height: '5%' },
-  searchWrapper: { marginTop: Dimensions.get('window').height * 0.25, marginBottom: 20, alignItems: 'center' },
+  searchWrapper: { marginTop: Dimensions.get('window').height * 0.075, marginBottom: 20, alignItems: 'center' },
   searchBox: { flexDirection: 'row', marginBottom: 12, width: '100%', maxWidth: 400 },
   searchActionsRow: { flexDirection: 'row', alignItems: 'center', width: '100%', maxWidth: 400, gap: 8 },
   input: { flex: 1, borderWidth: 1, padding: 12, borderRadius: 8, fontSize: 16, borderColor: '#ccc' },
