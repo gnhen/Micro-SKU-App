@@ -31,6 +31,52 @@ const HEADERS = {
   'Cache-Control': 'max-age=0'
 };
 
+let runtimeUserAgent = HEADERS['User-Agent'];
+
+export const setScraperUserAgent = (userAgent) => {
+  if (typeof userAgent === 'string' && userAgent.trim().length > 0) {
+    runtimeUserAgent = userAgent.trim();
+    console.log('[scraper] Updated runtime user-agent from challenge session');
+  }
+};
+
+const getRequestHeaders = () => ({
+  ...HEADERS,
+  'User-Agent': runtimeUserAgent || HEADERS['User-Agent'],
+});
+
+const CHALLENGE_PATTERNS = [
+  /just a moment/i,
+  /enable javascript and cookies/i,
+  /_cf_chl_opt/i,
+  /__cf_chl_/i,
+  /cdn-cgi\/challenge-platform/i,
+  /verify you are human/i,
+  /attention required/i,
+  /cloudflare/i,
+];
+
+const isChallengePage = (html = '', url = '') => {
+  const probe = `${url}\n${html.slice(0, 12000)}`;
+  return CHALLENGE_PATTERNS.some((pattern) => pattern.test(probe));
+};
+
+const buildChallengeRequiredError = ({ sku, storeId, url, stage, status }) => {
+  return {
+    error: 'challengeRequired',
+    searchedSku: sku,
+    challenge: {
+      provider: 'cloudflare',
+      stage,
+      url,
+      storeId,
+      status,
+      retryable: true,
+      message: 'Micro Center requested a verification challenge. Complete it in-app and retry.',
+    },
+  };
+};
+
 const decodeHtml = (html) => {
   return html
     .replace(/&amp;/g, '&')
@@ -279,6 +325,9 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
     let productId = null;
     let productUrl = null;
     let originalSku = sku;
+    let expectedSearchSku = typeof sku === 'string' ? sku.trim() : '';
+    const originalInputLower = typeof originalSku === 'string' ? originalSku.toLowerCase() : '';
+    const isUrlInput = originalInputLower.includes('microcenter.com/');
 
     if (sku && sku.toLowerCase().includes('microcenter.com/product/')) {
        const urlMatch = sku.match(/product\/(\d+)\//i);
@@ -298,12 +347,50 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
     let productHtml;
 
     if (!productId) {
-      const searchUrl = `${BASE_URL}/search/search_results.aspx?Ntt=${sku}&searchButton=search&storeid=${storeId}`;
+      let searchUrl;
+      if (typeof sku === 'string' && sku.toLowerCase().includes('microcenter.com/search/search_results.aspx')) {
+        searchUrl = sku;
+        if (!/storeid=/i.test(searchUrl)) {
+          const separator = searchUrl.includes('?') ? '&' : '?';
+          searchUrl = `${searchUrl}${separator}storeid=${storeId}`;
+        }
+
+        try {
+          const parsedUrl = new URL(searchUrl);
+          const nttParam = parsedUrl.searchParams.get('Ntt') || parsedUrl.searchParams.get('ntt');
+          if (nttParam && nttParam.trim()) {
+            expectedSearchSku = nttParam.trim();
+          }
+        } catch {
+          const nttMatch = searchUrl.match(/[?&]Ntt=([^&]+)/i);
+          if (nttMatch && nttMatch[1]) {
+            expectedSearchSku = decodeURIComponent(nttMatch[1]).trim();
+          }
+        }
+      } else {
+        searchUrl = `${BASE_URL}/search/search_results.aspx?Ntt=${sku}&searchButton=search&storeid=${storeId}`;
+      }
       console.log(`[fetchProductBySku] Fetching search URL: ${searchUrl}`);
       
       await waitForRateLimit(onStatus); // Wait to avoid rate limiting
-      const response = await fetch(searchUrl, { headers: HEADERS });
+      const response = await fetch(searchUrl, { headers: getRequestHeaders() });
       console.log(`[fetchProductBySku] Search response status: ${response.status}, URL: ${response.url}`);
+
+      const searchResponseUrl = response.url || searchUrl;
+      let searchHtmlText = null;
+
+      if (response.status >= 400 || !searchResponseUrl.includes('/product/')) {
+        searchHtmlText = await response.text();
+        if (response.status === 403 || isChallengePage(searchHtmlText, searchResponseUrl)) {
+          return buildChallengeRequiredError({
+            sku,
+            storeId,
+            url: searchResponseUrl,
+            stage: 'search',
+            status: response.status,
+          });
+        }
+      }
       
       if (response.url && response.url.includes('/product/')) {
         console.log('Search redirected to product page:', response.url);
@@ -312,7 +399,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
         if (idMatch) {
             productId = idMatch[1];
         } else {
-            const htmlText = await response.text();
+          const htmlText = searchHtmlText ?? await response.text();
             const match = htmlText.match(/['"]productId['"]\s*:\s*['"](\d+)['"]/i) || 
                           htmlText.match(/data-id=['"](\d+)['"]/i) || 
                           htmlText.match(/<input[^>]*name=['"]productId['"][^>]*value=['"](\d+)['"]/i);
@@ -327,10 +414,10 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
         productUrl = `${cleanBaseUrl}?storeid=${storeId}`;
         console.log(`Cleaning redirected URL to: ${productUrl}`);
       } else {
-        const htmlText = await response.text();
+        const htmlText = searchHtmlText ?? await response.text();
 
         if (htmlText.includes("Oh no!") && htmlText.includes("couldn't find any matches")) {
-            return { error: "noResults", searchedSku: sku };
+          return { error: "noResults", searchedSku: expectedSearchSku || sku };
         }
 
         // "0 Results for" in the searchInfoBar is definitive — no real product exists for this SKU.
@@ -338,7 +425,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
         const zeroResultsMatch = htmlText.match(/searchInfoBar[^>]*>[^<]*0\s+Results?\s+for\s+[""]?([^""\n<]+)[""]?/i);
         if (zeroResultsMatch) {
             console.log(`[fetchProductBySku] Search page reports 0 results — returning noResults`);
-            return { error: "noResults", searchedSku: sku };
+          return { error: "noResults", searchedSku: expectedSearchSku || sku };
         }
 
         if (htmlText.includes("search_results.aspx") || htmlText.includes("Search Results") || htmlText.includes("Showing Results For")) {
@@ -387,9 +474,9 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
                 // internal 6-digit SKU, never the UPC, so the check always fails for UPCs.
                 const linkIndex = relevantHtml.indexOf(linkMatch[0]);
                 const cardContext = relevantHtml.substring(Math.max(0, linkIndex - 300), linkIndex + 800);
-                if (sku.length <= 10 && !cardContext.includes(sku)) {
-                    console.log(`[fetchProductBySku] Found product link but SKU ${sku} not in card context — treating as no results`);
-                    return { error: "noResults", searchedSku: sku };
+                if (expectedSearchSku.length <= 10 && !cardContext.includes(expectedSearchSku)) {
+                  console.log(`[fetchProductBySku] Found product link but SKU ${expectedSearchSku} not in card context — treating as no results`);
+                  return { error: "noResults", searchedSku: expectedSearchSku || sku };
                 }
 
                 productUrl = BASE_URL + linkMatch[1] + `?storeid=${storeId}`;
@@ -399,7 +486,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
             } else {
                 const multiProductMatch = htmlText.match(/data-id=['"](\d+)['"][^>]*data-id=['"](\d+)['"]/i);
                 if (multiProductMatch) {
-                    return { error: "noResults", searchedSku: sku };
+                return { error: "noResults", searchedSku: expectedSearchSku || sku };
                 }
             }
         }
@@ -414,8 +501,14 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
             }
 
             if (!match || !match[1]) {
-                if (htmlText.includes("Access Denied") || htmlText.includes("Cloudflare")) {
-                throw new Error("Blocked by Bot Protection");
+                if (isChallengePage(htmlText, searchResponseUrl)) {
+                  return buildChallengeRequiredError({
+                    sku,
+                    storeId,
+                    url: searchResponseUrl,
+                    stage: 'search',
+                    status: response.status,
+                  });
                 }
                 throw new Error("Product ID not found");
             }
@@ -433,9 +526,18 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
     if (typeof productHtml === 'undefined') {
         console.log(`[fetchProductBySku] Fetching product page: ${productUrl}`);
         await waitForRateLimit(onStatus); // Wait to avoid rate limiting
-        const productResponse = await fetch(productUrl, { headers: HEADERS });
+      const productResponse = await fetch(productUrl, { headers: getRequestHeaders() });
         console.log(`[fetchProductBySku] Product response status: ${productResponse.status}`);
         productHtml = await productResponse.text();
+        if (productResponse.status === 403 || isChallengePage(productHtml, productResponse.url || productUrl)) {
+          return buildChallengeRequiredError({
+            sku: originalSku,
+            storeId,
+            url: productResponse.url || productUrl,
+            stage: 'product',
+            status: productResponse.status,
+          });
+        }
         console.log(`[fetchProductBySku] Product HTML length: ${productHtml.length}`);
     }
 
@@ -448,7 +550,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
       console.log('Extracted actual SKU from product page:', actualSku);
       console.log('Searched SKU:', sku);
       
-      if (originalSku && originalSku.toLowerCase().includes('microcenter.com/product/')) {
+      if (isUrlInput) {
          console.log('URL search detected, adopting page SKU:', actualSku);
          sku = actualSku;
       } else if (actualSku !== sku) {
@@ -688,7 +790,7 @@ export const fetchTextSearch = async (query, storeId = '071') => {
     console.log(`[fetchTextSearch] Fetching: ${searchUrl}`);
 
     await waitForRateLimit();
-    const response = await fetch(searchUrl, { headers: HEADERS });
+    const response = await fetch(searchUrl, { headers: getRequestHeaders() });
 
     // Redirect straight to a product page → treat as single result
     if (response.url && response.url.includes('/product/')) {

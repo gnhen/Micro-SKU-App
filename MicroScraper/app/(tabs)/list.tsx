@@ -16,10 +16,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { WebView } from 'react-native-webview';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
-import { fetchProductBySku } from '../../services/scraper';
+import { fetchProductBySku, setScraperUserAgent } from '../../services/scraper';
+import { createChallengeRequest } from '../../services/challengeSession';
+import { CHALLENGE_SIGNAL_SCRIPT, isChallengeSignal } from '@/services/challengeWebViewUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -114,6 +117,10 @@ export default function ListScreen() {
   const [toastMsg, setToastMsg] = useState('');
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [backgroundChallenge, setBackgroundChallenge] = useState<any>(null);
+  const backgroundChallengeResolverRef = useRef<any>(null);
+  const backgroundChallengeTimerRef = useRef<any>(null);
+  const backgroundChallengeUserAgentRef = useRef<string | null>(null);
 
   const router = useRouter();
 
@@ -123,6 +130,18 @@ export default function ListScreen() {
     const t = setTimeout(() => setToastMsg(''), 2500);
     return () => clearTimeout(t);
   }, [toastMsg]);
+
+  useEffect(() => {
+    return () => {
+      if (backgroundChallengeTimerRef.current) {
+        clearTimeout(backgroundChallengeTimerRef.current);
+      }
+      if (backgroundChallengeResolverRef.current) {
+        backgroundChallengeResolverRef.current({ status: 'failed', reason: 'unmounted' });
+        backgroundChallengeResolverRef.current = null;
+      }
+    };
+  }, []);
 
   // ── Load data on focus ──────────────────────────────────────────────────────
   useFocusEffect(
@@ -252,6 +271,105 @@ export default function ListScreen() {
     );
   };
 
+  const runChallengeFlow = async (challenge: any, searchedSku: string) => {
+    const fallbackUrl = `https://www.microcenter.com/search/search_results.aspx?Ntt=${encodeURIComponent(searchedSku)}&searchButton=search&storeid=${storeId}`;
+    const payload = {
+      searchedSku,
+      challenge: {
+        ...(challenge || {}),
+        url: challenge?.url || fallbackUrl,
+      },
+    };
+
+    const { requestId, promise } = createChallengeRequest(payload);
+    router.push({ pathname: '/challenge', params: { requestId } });
+    return promise;
+  };
+
+  const resolveBackgroundChallenge = (outcome: any) => {
+    if (backgroundChallengeTimerRef.current) {
+      clearTimeout(backgroundChallengeTimerRef.current);
+      backgroundChallengeTimerRef.current = null;
+    }
+
+    const resolver = backgroundChallengeResolverRef.current;
+    backgroundChallengeResolverRef.current = null;
+    setBackgroundChallenge(null);
+
+    if (resolver) resolver(outcome);
+  };
+
+  const runBackgroundChallengeFlow = async (challenge: any, searchedSku: string) => {
+    const fallbackUrl = `https://www.microcenter.com/search/search_results.aspx?Ntt=${encodeURIComponent(searchedSku)}&searchButton=search&storeid=${storeId}`;
+    const startUrl = challenge?.url || fallbackUrl;
+
+    return new Promise((resolve) => {
+      backgroundChallengeUserAgentRef.current = null;
+      backgroundChallengeResolverRef.current = resolve;
+      setBackgroundChallenge({ url: startUrl, searchedSku });
+
+      backgroundChallengeTimerRef.current = setTimeout(() => {
+        resolveBackgroundChallenge({ status: 'failed', reason: 'timeout' });
+      }, 6500);
+    });
+  };
+
+  const fetchProductWithChallengePassthrough = async (searchSku: string, sid: string) => {
+    const firstResult = await fetchProductBySku(searchSku, sid);
+    if ((firstResult as any).error !== 'challengeRequired') {
+      return firstResult;
+    }
+
+    const backgroundOutcome: any = await runBackgroundChallengeFlow((firstResult as any).challenge, searchSku);
+    if (backgroundOutcome?.status === 'solved') {
+      if (backgroundOutcome?.userAgent) {
+        setScraperUserAgent(backgroundOutcome.userAgent);
+      }
+
+      const backgroundRetryTarget = (typeof backgroundOutcome?.finalUrl === 'string' && backgroundOutcome.finalUrl.includes('microcenter.com'))
+        ? backgroundOutcome.finalUrl
+        : searchSku;
+
+      const backgroundRetryResult = await fetchProductBySku(backgroundRetryTarget, sid);
+      if ((backgroundRetryResult as any).error !== 'challengeRequired') {
+        return backgroundRetryResult;
+      }
+    }
+
+    const challengeOutcome = await runChallengeFlow((firstResult as any).challenge, searchSku);
+    if (challengeOutcome?.status !== 'solved') {
+      if (challengeOutcome?.reason === 'verificationTimeout') {
+        return { error: 'challengeTimeout', searchedSku: searchSku };
+      }
+      if (challengeOutcome?.reason === 'noExactMatch' || challengeOutcome?.reason === 'skuMismatch') {
+        return { error: 'challengeNoExactMatch', searchedSku: searchSku };
+      }
+      return { error: 'challengeCancelled', searchedSku: searchSku };
+    }
+
+    if (challengeOutcome?.productData) {
+      return {
+        ...challengeOutcome.productData,
+        sku: challengeOutcome.productData.sku || searchSku,
+      };
+    }
+
+    if (challengeOutcome?.userAgent) {
+      setScraperUserAgent(challengeOutcome.userAgent);
+    }
+
+    const retryTarget = (typeof challengeOutcome?.finalUrl === 'string' && challengeOutcome.finalUrl.includes('microcenter.com'))
+      ? challengeOutcome.finalUrl
+      : searchSku;
+
+    const retryResult = await fetchProductBySku(retryTarget, sid);
+    if ((retryResult as any).error === 'challengeRequired') {
+      return { error: 'challengeStillBlocked', searchedSku: searchSku };
+    }
+
+    return retryResult;
+  };
+
   // ── Refresh prices & stock for all items in current list ───────────────────
   const handleRefreshPrices = async () => {
     if (!currentList || refreshingPrices) return;
@@ -259,10 +377,28 @@ export default function ListScreen() {
     try {
       const sid = await AsyncStorage.getItem('storeId') || storeId;
       const updatedItems: ListItem[] = [];
+      let stopRefresh = false;
       for (const item of currentList.items) {
+        if (stopRefresh) {
+          updatedItems.push(item);
+          continue;
+        }
+
         try {
-          const result = await fetchProductBySku(item.sku, sid);
+          const result = await fetchProductWithChallengePassthrough(item.sku, sid);
           if (result.error) {
+            if (result.error === 'challengeCancelled') {
+              setToastMsg('Verification canceled. Remaining items were not refreshed.');
+              stopRefresh = true;
+            } else if (result.error === 'challengeTimeout') {
+              setToastMsg('Verification timed out. Remaining items were not refreshed.');
+              stopRefresh = true;
+            } else if (result.error === 'challengeNoExactMatch') {
+              setToastMsg(`No exact match for SKU ${item.sku}.`);
+            } else if (result.error === 'challengeStillBlocked') {
+              setToastMsg('Verification completed, but refresh is still blocked.');
+              stopRefresh = true;
+            }
             updatedItems.push(item);
           } else {
             updatedItems.push({
@@ -293,9 +429,19 @@ export default function ListScreen() {
     const processed = processBarcodeRaw(rawData);
     try {
       const sid = await AsyncStorage.getItem('storeId') || storeId;
-      const result = await fetchProductBySku(processed, sid);
+      const result = await fetchProductWithChallengePassthrough(processed, sid);
       if (result.error) {
-        setToastMsg(`Not found: ${processed}`);
+        if (result.error === 'challengeCancelled') {
+          setToastMsg('Verification canceled. Scan not added.');
+        } else if (result.error === 'challengeTimeout') {
+          setToastMsg('Verification timed out. Scan not added.');
+        } else if (result.error === 'challengeNoExactMatch') {
+          setToastMsg(`No exact match: ${processed}`);
+        } else if (result.error === 'challengeStillBlocked') {
+          setToastMsg('Still blocked after verification. Try again.');
+        } else {
+          setToastMsg(`Not found: ${processed}`);
+        }
       } else {
         const price = parsePrice((result as any).sale_price || result.price);
         const newItem: ListItem = {
@@ -337,9 +483,25 @@ export default function ListScreen() {
     setAddingItem(true);
     try {
       const sid = await AsyncStorage.getItem('storeId') || storeId;
-      const result = await fetchProductBySku(rawSku, sid);
+      const result = await fetchProductWithChallengePassthrough(rawSku, sid);
 
       if (result.error) {
+        if (result.error === 'challengeCancelled') {
+          Alert.alert('Verification Canceled', 'Verification was canceled before completion.');
+          return;
+        }
+        if (result.error === 'challengeTimeout') {
+          Alert.alert('Verification Timed Out', 'Verification timed out before completion. Please try again.');
+          return;
+        }
+        if (result.error === 'challengeNoExactMatch') {
+          Alert.alert('Product Not Found', `No exact match found for SKU: ${rawSku}`);
+          return;
+        }
+        if (result.error === 'challengeStillBlocked') {
+          Alert.alert('Still Blocked', 'Verification completed, but the request is still blocked. Please try again in a moment.');
+          return;
+        }
         Alert.alert('Product Not Found', `No product found for SKU: ${rawSku}`);
         return;
       }
@@ -726,6 +888,55 @@ export default function ListScreen() {
           </View>
         </View>
       </Modal>
+
+      {backgroundChallenge ? (
+        <View style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}>
+          <WebView
+            source={{ uri: backgroundChallenge.url }}
+            sharedCookiesEnabled
+            thirdPartyCookiesEnabled
+            javaScriptEnabled
+            domStorageEnabled
+            injectedJavaScript={CHALLENGE_SIGNAL_SCRIPT}
+            onMessage={(event) => {
+              try {
+                const message = JSON.parse(event.nativeEvent.data || '{}');
+                if (message.type !== 'pageSignals') return;
+
+                const signalUrl = String(message.url || '');
+                const signalTitle = String(message.title || '');
+                const hasChallenge = Boolean(message.hasChallenge);
+                const expectedSku = String(backgroundChallenge?.searchedSku || '').trim();
+
+                if (typeof message.userAgent === 'string' && message.userAgent.trim()) {
+                  backgroundChallengeUserAgentRef.current = message.userAgent;
+                }
+
+                if (!/microcenter\.com/i.test(signalUrl)) return;
+                if (isChallengeSignal(signalUrl, signalTitle, hasChallenge)) return;
+
+                if (expectedSku) {
+                  const normalizedUrl = decodeURIComponent(signalUrl);
+                  const hasMatchingSearchSku = normalizedUrl.includes(`Ntt=${expectedSku}`) || normalizedUrl.includes(`ntt=${expectedSku}`);
+                  const isProductPage = /\/product\/\d+\//i.test(signalUrl);
+                  if (!hasMatchingSearchSku && !isProductPage) return;
+                }
+
+                resolveBackgroundChallenge({
+                  status: 'solved',
+                  finalUrl: signalUrl,
+                  userAgent: backgroundChallengeUserAgentRef.current,
+                });
+              } catch (error) {
+                console.log('[list background challenge] message parse error', error);
+              }
+            }}
+            onError={() => {
+              resolveBackgroundChallenge({ status: 'failed', reason: 'webviewError' });
+            }}
+          />
+        </View>
+      ) : null}
     </View>
     </GestureHandlerRootView>
   );

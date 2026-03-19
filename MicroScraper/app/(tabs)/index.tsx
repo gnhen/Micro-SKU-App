@@ -6,10 +6,12 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
-import { fetchProductBySku, fetchTextSearch } from '../../services/scraper';
+import { fetchProductBySku, fetchTextSearch, setScraperUserAgent } from '../../services/scraper';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { GestureHandlerRootView, PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
+import { WebView } from 'react-native-webview';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
 import { initDatabase, addComponent } from '@/services/database';
@@ -20,6 +22,8 @@ import { lookupStore071MergedCode, lookupStore071MergedCodes } from '@/constants
 import { findStore071MapEntries, STORE_071_MAP_IMAGE, STORE_071_MAP_IMAGE_WIDTH, STORE_071_MAP_IMAGE_HEIGHT, STORE_071_MAP_PAGE_HEIGHT, STORE_071_MAP_PAGE_WIDTH } from '@/constants/store071MapIndex';
 import type { Store071MapEntry } from '@/constants/store071MapIndex';
 import PlansModal from '@/components/PlansModal';
+import { createChallengeRequest } from '../../services/challengeSession';
+import { CHALLENGE_SIGNAL_SCRIPT, isChallengeSignal } from '@/services/challengeWebViewUtils';
 import type { ItemList, ListItem } from './list';
 
 const LIST_STORAGE_KEY = 'itemLists';
@@ -113,8 +117,13 @@ export default function ScanScreen() {
 
   const { selectedTabs, plansEnabled, department } = useSettings();
   const listTabActive = selectedTabs.includes('list');
+  const router = useRouter();
 
   const [plansModalVisible, setPlansModalVisible] = useState(false);
+  const [backgroundChallenge, setBackgroundChallenge] = useState<any>(null);
+  const backgroundChallengeResolverRef = useRef<any>(null);
+  const backgroundChallengeTimerRef = useRef<any>(null);
+  const backgroundChallengeUserAgentRef = useRef<string | null>(null);
   
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
@@ -327,6 +336,18 @@ export default function ScanScreen() {
       setScannerEnabled(true);
     }
   }, [scanning]);
+
+  useEffect(() => {
+    return () => {
+      if (backgroundChallengeTimerRef.current) {
+        clearTimeout(backgroundChallengeTimerRef.current);
+      }
+      if (backgroundChallengeResolverRef.current) {
+        backgroundChallengeResolverRef.current({ status: 'failed', reason: 'unmounted' });
+        backgroundChallengeResolverRef.current = null;
+      }
+    };
+  }, []);
 
   const theme = {
     bg: colors.background,
@@ -548,7 +569,113 @@ export default function ScanScreen() {
     }
   };
 
-  const handleSearch = async (searchSku, isUPC = false, fromBarcodeScan = false) => {
+  const resolveBackgroundChallenge = (outcome: any) => {
+    if (backgroundChallengeTimerRef.current) {
+      clearTimeout(backgroundChallengeTimerRef.current);
+      backgroundChallengeTimerRef.current = null;
+    }
+
+    const resolver = backgroundChallengeResolverRef.current;
+    backgroundChallengeResolverRef.current = null;
+    setBackgroundChallenge(null);
+
+    if (resolver) {
+      resolver(outcome);
+    }
+  };
+
+  const runBackgroundChallengeFlow = async (challenge: any, searchedSku: string) => {
+    const fallbackUrl = `https://www.microcenter.com/search/search_results.aspx?Ntt=${encodeURIComponent(searchedSku)}&searchButton=search&storeid=${storeId}`;
+    const startUrl = challenge?.url || fallbackUrl;
+
+    return new Promise((resolve) => {
+      backgroundChallengeUserAgentRef.current = null;
+      backgroundChallengeResolverRef.current = resolve;
+      setBackgroundChallenge({ url: startUrl, searchedSku });
+
+      backgroundChallengeTimerRef.current = setTimeout(() => {
+        resolveBackgroundChallenge({ status: 'failed', reason: 'timeout' });
+      }, 6500);
+    });
+  };
+
+  const applySolvedProductData = (productData: any, fallbackSku: string, fromBarcodeScan: boolean, isURL: boolean) => {
+    const finalData = {
+      ...productData,
+      sku: productData?.sku || fallbackSku,
+      imageUrls: productData?.imageUrls || (productData?.imageUrl ? [productData.imageUrl] : []),
+      reviews: productData?.reviews || { rating: 0, reviewCount: 0 },
+      proInstallation: productData?.proInstallation || [],
+      protectionPlans: productData?.protectionPlans || [],
+      detailedSpecs: productData?.detailedSpecs || [],
+      specs: productData?.specs || [],
+    };
+
+    if (isURL && finalData.sku) {
+      setSku(finalData.sku);
+    }
+
+    setData(finalData);
+    setStore071MergedCode(lookupStore071MergedCode(String(finalData.sku ?? '')));
+    setStore071MergedCodes(lookupStore071MergedCodes(String(finalData.sku ?? '')));
+    setValidImageUrls(finalData.imageUrls || []);
+    addToHistory(finalData);
+
+    if (fromBarcodeScan) {
+      setScannerEnabled(true);
+    }
+  };
+
+  const runChallengeFlow = async (challenge: any, searchedSku: string) => {
+    const fallbackUrl = `https://www.microcenter.com/search/search_results.aspx?Ntt=${encodeURIComponent(searchedSku)}&searchButton=search&storeid=${storeId}`;
+    const payload = {
+      searchedSku,
+      challenge: {
+        ...(challenge || {}),
+        url: challenge?.url || fallbackUrl,
+      },
+    };
+
+    const { requestId, promise } = createChallengeRequest(payload);
+    router.push({ pathname: '/challenge', params: { requestId } });
+    return promise;
+  };
+
+  const extractSkuFromSearchUrl = (value: any): string | null => {
+    if (typeof value !== 'string') return null;
+    if (!value.toLowerCase().includes('search/search_results.aspx')) return null;
+
+    try {
+      const parsed = new URL(value);
+      const ntt = parsed.searchParams.get('Ntt') || parsed.searchParams.get('ntt');
+      if (ntt && ntt.trim()) return ntt.trim();
+    } catch {
+      const match = value.match(/[?&]Ntt=([^&]+)/i);
+      if (match && match[1]) {
+        try {
+          return decodeURIComponent(match[1]).trim();
+        } catch {
+          return match[1].trim();
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const isProductUrlInput = (value: any): boolean => {
+    return typeof value === 'string' && value.toLowerCase().includes('microcenter.com/product/');
+  };
+
+  const handleSearch = async (
+    searchSku,
+    isUPC = false,
+    fromBarcodeScan = false,
+    challengeAttempted = false,
+    backgroundAttempted = false,
+    requestedSku: string | null = null,
+    originalWasUrl = false
+  ) => {
     const targetSku = searchSku || sku;
     if (!targetSku) {
       if (fromBarcodeScan) {
@@ -557,8 +684,8 @@ export default function ScanScreen() {
       return;
     }
 
-    // Check if expected SKU is actually a URL
-    const isURL = targetSku.toLowerCase().includes('microcenter.com');
+    const canonicalSku = requestedSku || extractSkuFromSearchUrl(targetSku) || String(targetSku);
+    const isURL = originalWasUrl || isProductUrlInput(targetSku);
 
     setLoading(true);
     setScanning(false);
@@ -571,7 +698,7 @@ export default function ScanScreen() {
       console.log(`[handleSearch] Starting search - SKU: ${targetSku}, isUPC: ${isUPC}, fromBarcodeScan: ${fromBarcodeScan}`);
       const storeId = await AsyncStorage.getItem('storeId') || '071';
       console.log(`[handleSearch] Using storeId: ${storeId}`);
-      const result = await fetchProductBySku(targetSku, storeId, (msg) => setLoadingStatus(msg));
+      const result: any = await fetchProductBySku(targetSku, storeId, (msg) => setLoadingStatus(msg));
       console.log(`[handleSearch] Result received:`, JSON.stringify(result, null, 2).substring(0, 500));
       
       setLoading(false);
@@ -579,7 +706,58 @@ export default function ScanScreen() {
     
     if (result.error) {
       console.log(`[handleSearch] Error in result: ${result.error}`);
-      if (result.error === "noResults") {
+      if (result.error === 'challengeRequired') {
+        if (challengeAttempted) {
+          Alert.alert('Verification Required', 'Verification was completed, but Micro Center is still blocking this request. Please try again in a moment.');
+          setError('Verification completed but request is still blocked. Try again.');
+          if (fromBarcodeScan) setScannerEnabled(true);
+          return;
+        }
+
+        if (!backgroundAttempted) {
+          setError('Micro Center requested verification. Attempting automatic solver...');
+          const backgroundOutcome: any = await runBackgroundChallengeFlow((result as any).challenge, canonicalSku);
+          if (backgroundOutcome?.status === 'solved') {
+            if (backgroundOutcome?.userAgent) {
+              setScraperUserAgent(backgroundOutcome.userAgent);
+            }
+            const backgroundRetryTarget = (typeof backgroundOutcome?.finalUrl === 'string' && backgroundOutcome.finalUrl.includes('microcenter.com'))
+              ? backgroundOutcome.finalUrl
+              : targetSku;
+            console.log('[handleSearch] Background verification succeeded. Retrying without popup.');
+            return handleSearch(backgroundRetryTarget, isUPC, fromBarcodeScan, false, true, canonicalSku, isURL);
+          }
+        }
+
+        setError('Opening verification prompt. Please wait a moment...');
+        const challengeOutcome = await runChallengeFlow((result as any).challenge, canonicalSku);
+        if (challengeOutcome?.status === 'solved') {
+          if (challengeOutcome?.productData) {
+            applySolvedProductData(challengeOutcome.productData, canonicalSku, fromBarcodeScan, isURL);
+            return;
+          }
+          if (challengeOutcome?.userAgent) {
+            setScraperUserAgent(challengeOutcome.userAgent);
+          }
+          const retryTarget = (typeof challengeOutcome?.finalUrl === 'string' && challengeOutcome.finalUrl.includes('microcenter.com'))
+            ? challengeOutcome.finalUrl
+            : targetSku;
+          console.log('[handleSearch] Challenge solved. Retrying SKU fetch once.');
+          return handleSearch(retryTarget, isUPC, fromBarcodeScan, true, true, canonicalSku, isURL);
+        }
+
+        const canceledMessage = challengeOutcome?.reason === 'dismissed'
+          ? 'Verification window was closed before completion.'
+          : challengeOutcome?.reason === 'verificationTimeout'
+            ? 'Verification timed out. Please try again.'
+            : (challengeOutcome?.reason === 'noExactMatch' || challengeOutcome?.reason === 'skuMismatch')
+              ? `No exact match found for SKU: ${canonicalSku}`
+              : (challengeOutcome?.reason === 'noProductLink' || challengeOutcome?.reason === 'error')
+                ? 'Verification finished but product extraction failed. Please try again.'
+              : 'Verification was canceled.';
+        setError(canceledMessage);
+        if (fromBarcodeScan) setScannerEnabled(true);
+      } else if (result.error === "noResults") {
         if (!noResultsAlertActive.current) {
           noResultsAlertActive.current = true;
           Alert.alert(
@@ -599,7 +777,7 @@ export default function ScanScreen() {
         }
       } else if (result.error === "skuMismatch") {
         // Check if the input was a standard 6-digit numeric SKU
-        const isNumericSku = /^\d{6}$/.test(targetSku);
+        const isNumericSku = /^\d{6}$/.test(canonicalSku);
         
         // If it was a UPC, URL, or non-numeric code (like SC1113), accept the redirect automatically.
         // Codes often redirect to SKUs, so this is usually a success case.
@@ -634,11 +812,11 @@ export default function ScanScreen() {
       } else {
         Alert.alert("Error", result.error);
       }
-    } else if (result.sku && result.sku !== targetSku && !isUPC && !isURL) {
+    } else if (result.sku && result.sku !== canonicalSku && !isUPC && !isURL) {
       // SKU mismatch - Micro Center redirected to a different product
-      setError(`Incorrect SKU Entry\n\nYou searched for: ${targetSku}\n\nPlease verify the SKU and try again.`);
+      setError(`Incorrect SKU Entry\n\nYou searched for: ${canonicalSku}\n\nPlease verify the SKU and try again.`);
       setData(null);
-    } else if (result.sku && result.sku !== targetSku && (isUPC || isURL)) {
+    } else if (result.sku && result.sku !== canonicalSku && (isUPC || isURL)) {
        // It was a UPC or URL search that resolved to a valid SKU - Accept it
        const finalData = { ...result, sku: result.sku }; // Use the found SKU
        // If it was a URL, update the input field to the clean SKU so it looks nice
@@ -649,7 +827,7 @@ export default function ScanScreen() {
        setValidImageUrls(result.imageUrls || []);
        addToHistory(finalData);
     } else {
-      const finalData = { ...result, sku: targetSku };
+      const finalData = { ...result, sku: canonicalSku };
       setData(finalData);
       setStore071MergedCode(lookupStore071MergedCode(String(finalData.sku ?? '')));
       setStore071MergedCodes(lookupStore071MergedCodes(String(finalData.sku ?? '')));
@@ -1255,6 +1433,55 @@ export default function ScanScreen() {
         onClose={() => setPlansModalVisible(false)}
         department={department}
       />
+
+      {backgroundChallenge ? (
+        <View style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}>
+          <WebView
+            source={{ uri: backgroundChallenge.url }}
+            sharedCookiesEnabled
+            thirdPartyCookiesEnabled
+            javaScriptEnabled
+            domStorageEnabled
+            injectedJavaScript={CHALLENGE_SIGNAL_SCRIPT}
+            onMessage={(event) => {
+              try {
+                const message = JSON.parse(event.nativeEvent.data || '{}');
+                if (message.type !== 'pageSignals') return;
+
+                const signalUrl = String(message.url || '');
+                const signalTitle = String(message.title || '');
+                const hasChallenge = Boolean(message.hasChallenge);
+                const expectedSku = String(backgroundChallenge?.searchedSku || '').trim();
+
+                if (typeof message.userAgent === 'string' && message.userAgent.trim()) {
+                  backgroundChallengeUserAgentRef.current = message.userAgent;
+                }
+
+                if (!/microcenter\.com/i.test(signalUrl)) return;
+                if (isChallengeSignal(signalUrl, signalTitle, hasChallenge)) return;
+
+                 if (expectedSku) {
+                  const normalizedUrl = decodeURIComponent(signalUrl);
+                  const hasMatchingSearchSku = normalizedUrl.includes(`Ntt=${expectedSku}`) || normalizedUrl.includes(`ntt=${expectedSku}`);
+                  const isProductPage = /\/product\/\d+\//i.test(signalUrl);
+                  if (!hasMatchingSearchSku && !isProductPage) return;
+                }
+
+                resolveBackgroundChallenge({
+                  status: 'solved',
+                  finalUrl: signalUrl,
+                  userAgent: backgroundChallengeUserAgentRef.current,
+                });
+              } catch (error) {
+                console.log('[background challenge] message parse error', error);
+              }
+            }}
+            onError={() => {
+              resolveBackgroundChallenge({ status: 'failed', reason: 'webviewError' });
+            }}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Micro SKU App",
     "slug": "MicroScraper",
-    "version": "0.3.102",
+    "version": "0.3.103",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "microscraper",
