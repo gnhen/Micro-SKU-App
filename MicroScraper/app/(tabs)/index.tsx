@@ -1438,10 +1438,12 @@ export default function ScanScreen() {
         <View style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}>
           <WebView
             source={{ uri: backgroundChallenge.url }}
-            sharedCookiesEnabled
-            thirdPartyCookiesEnabled
-            javaScriptEnabled
-            domStorageEnabled
+            applicationNameForUserAgent={Platform.OS === 'ios' ? 'Version/17.0 Safari/604.1' : undefined}
+            allowsInlineMediaPlayback={true}
+            mediaPlaybackRequiresUserAction={false}
+            javaScriptEnabled={true}
+            domStorageEnabled={true}
+            originWhitelist={['*']}
             injectedJavaScript={CHALLENGE_SIGNAL_SCRIPT}
             onMessage={(event) => {
               try {

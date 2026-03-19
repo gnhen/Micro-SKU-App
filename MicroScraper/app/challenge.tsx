@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { WebView } from 'react-native-webview';
 
@@ -42,6 +42,7 @@ export default function ChallengeScreen() {
 
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [statusText, setStatusText] = useState('Verification in progress...');
+  const [debugLog, setDebugLog] = useState<string>('Init.');
   const [loading, setLoading] = useState(true);
   const [detectedUserAgent, setDetectedUserAgent] = useState<string | undefined>(undefined);
   const [extractingProduct, setExtractingProduct] = useState(false);
@@ -53,6 +54,7 @@ export default function ChallengeScreen() {
   const verificationTimeoutRef = useRef<any>(null);
 
   const finish = useCallback((status: ChallengeOutcomeStatus, extras: Partial<ChallengeOutcome> = {}) => {
+    setDebugLog(prev => prev + ` | finish(${status})`);
     if (resolvedRef.current) return;
     resolvedRef.current = true;
 
@@ -60,7 +62,11 @@ export default function ChallengeScreen() {
       resolveChallengeRequest(requestId, { status, ...extras });
     }
 
-    router.back();
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/');
+    }
   }, [requestId, router]);
 
   useEffect(() => {
@@ -77,25 +83,41 @@ export default function ChallengeScreen() {
         resolveChallengeRequest(requestId, { status: 'cancelled', reason: 'dismissed' });
       }
     };
-  }, [requestId]);
+    // EXPLICITLY removing dependencies so this only runs once on mount.
+    // If router or startVerificationTimeout changes, it was thrashing and resetting the timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Use refs for values needed in the timeout to avoid recreating the callback and retriggering useEffect
+  const currentUrlRef = useRef(initialUrl);
+  const detectedUserAgentRef = useRef<string | undefined>(undefined);
+
+  // Keep refs in sync with state
+  useEffect(() => { currentUrlRef.current = currentUrl; }, [currentUrl]);
+  useEffect(() => { detectedUserAgentRef.current = detectedUserAgent; }, [detectedUserAgent]);
 
   const startVerificationTimeout = useCallback(() => {
     if (verificationTimeoutRef.current) {
+      setDebugLog(prev => prev + ` | timeout_running`);
       // Don't restart the timeout if already running
       return;
     }
+    
+    setDebugLog(prev => prev + ` | timeout_start`);
 
     verificationTimeoutRef.current = setTimeout(() => {
+      setDebugLog(prev => prev + ` | timeout_fired`);
       finish('error', {
         reason: 'verificationTimeout',
-        finalUrl: currentUrl,
-        userAgent: detectedUserAgent,
+        finalUrl: currentUrlRef.current,
+        userAgent: detectedUserAgentRef.current,
       });
-    }, 35000); // Increased to 35 seconds to allow for slow manual puzzle solving + page load
-  }, [currentUrl, detectedUserAgent, finish]);
+    }, 30000); // 30 seconds to allow for Cloudflare puzzle
+  }, [finish]);
 
   const stopVerificationTimeout = useCallback(() => {
     if (verificationTimeoutRef.current) {
+      setDebugLog(prev => prev + ` | timeout_stop`);
       clearTimeout(verificationTimeoutRef.current);
       verificationTimeoutRef.current = null;
     }
@@ -163,15 +185,21 @@ export default function ChallengeScreen() {
 
       <View style={[styles.statusBar, { borderBottomColor: colors.border }]}> 
         {loading ? <ActivityIndicator size="small" color={colors.tint} /> : null}
-        <Text style={[styles.statusText, { color: colors.text }]} numberOfLines={2}>{statusText}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.statusText, { color: colors.text }]} numberOfLines={1}>{statusText}</Text>
+          <Text style={{ fontSize: 9, color: 'gray' }} numberOfLines={2}>{debugLog}</Text>
+        </View>
       </View>
 
       <WebView
         source={{ uri: initialUrl }}
-        sharedCookiesEnabled
-        thirdPartyCookiesEnabled
-        javaScriptEnabled
-        domStorageEnabled
+        applicationNameForUserAgent={Platform.OS === 'ios' ? 'Version/17.0 Safari/604.1' : undefined}
+        allowsInlineMediaPlayback={true}
+        mediaPlaybackRequiresUserAction={false}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        bounces={false}
+        originWhitelist={['*']}
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => {
           setLoading(false);
