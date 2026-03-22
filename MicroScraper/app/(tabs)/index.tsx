@@ -539,20 +539,55 @@ export default function ScanScreen() {
     }
   };
 
-  const handleTextSearch = async () => {
+  const handleTextSearch = async (backgroundAttempted = false, challengeAttempted = false) => {
     if (!textQuery.trim()) return;
     setTextSearchLoading(true);
-    setTextResults([]);
-    setData(null);
-    setError(null);
+    if (!backgroundAttempted && !challengeAttempted) {
+      setTextResults([]);
+      setData(null);
+      setError(null);
+    }
     try {
       const sid = await AsyncStorage.getItem('storeId') || '071';
       const result = await fetchTextSearch(textQuery.trim(), sid);
+      
       if (result.singleUrl) {
         // Only one product matched — load it directly and exit text mode
         setTextSearchMode(false);
         setTextQuery('');
         handleSearch(result.singleUrl, false, false);
+      } else if (result.error === 'challengeRequired') {
+        if (challengeAttempted) {
+          Alert.alert('Verification Required', 'Verification was completed, but Micro Center is still blocking this request. Please try again in a moment.');
+          setError('Verification completed but request is still blocked. Try again.');
+          return;
+        }
+
+        if (!backgroundAttempted) {
+          setError('Micro Center requested verification. Attempting automatic solver...');
+          const backgroundOutcome: any = await runBackgroundChallengeFlow((result as any).challenge, textQuery.trim());
+          if (backgroundOutcome?.status === 'solved') {
+            if (backgroundOutcome?.userAgent) {
+              setScraperUserAgent(backgroundOutcome.userAgent);
+            }
+            console.log('[handleTextSearch] Background verification succeeded. Retrying without popup.');
+            return handleTextSearch(true, false);
+          }
+        }
+
+        setError('Opening verification prompt. Please wait a moment...');
+        const challengeOutcome: any = await runChallengeFlow((result as any).challenge, textQuery.trim());
+        
+        if (challengeOutcome?.status === 'solved') {
+          if (challengeOutcome?.userAgent) {
+            setScraperUserAgent(challengeOutcome.userAgent);
+          }
+          console.log('[handleTextSearch] Challenge solved. Retrying text search.');
+          return handleTextSearch(true, true);
+        } else {
+          setError('Verification failed or cancelled.');
+        }
+
       } else if (result.error) {
         setError(result.error);
       } else {

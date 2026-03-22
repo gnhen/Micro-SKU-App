@@ -792,6 +792,22 @@ export const fetchTextSearch = async (query, storeId = '071') => {
     await waitForRateLimit();
     const response = await fetch(searchUrl, { headers: getRequestHeaders() });
 
+    const searchResponseUrl = response.url || searchUrl;
+    let searchHtmlText = null;
+
+    if (response.status >= 400 || !searchResponseUrl.includes('/product/')) {
+      searchHtmlText = await response.text();
+      if (response.status === 403 || isChallengePage(searchHtmlText, searchResponseUrl)) {
+        return buildChallengeRequiredError({
+          sku: query,
+          storeId,
+          url: searchResponseUrl,
+          stage: 'search',
+          status: response.status,
+        });
+      }
+    }
+
     // Redirect straight to a product page → treat as single result
     if (response.url && response.url.includes('/product/')) {
       const cleanUrl = response.url.split('?')[0] + `?storeid=${storeId}`;
@@ -799,7 +815,7 @@ export const fetchTextSearch = async (query, storeId = '071') => {
       return { singleUrl: cleanUrl };
     }
 
-    const html = await response.text();
+    const html = searchHtmlText ?? await response.text();
 
     // Anchor results section after "Sort by:" so we skip nav/header links
     const sortIdx = html.indexOf('Sort by:');

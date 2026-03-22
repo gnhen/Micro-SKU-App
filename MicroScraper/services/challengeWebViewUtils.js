@@ -8,28 +8,33 @@ export const isChallengeSignal = (url = '', title = '', hasChallenge = false) =>
 
 export const CHALLENGE_SIGNAL_SCRIPT = `
 (function() {
-  try {
-    var title = document.title || '';
-    var userAgent = navigator.userAgent || '';
-    
-    // Only check for elements that actually contain the challenge
-    var hasCFElement = document.getElementById('challenge-stage') !== null || document.getElementById('cf-please-wait') !== null;
-    var isChallengeTitle = /just a moment|attention required|verify you are human/i.test(title);
-    var hasChallenge = isChallengeTitle || hasCFElement;
+  function sendSignals() {
+    try {
+      var title = document.title || '';
+      var userAgent = navigator.userAgent || '';
+      
+      // Only check for elements that actually contain the challenge
+      var hasCFElement = document.getElementById('challenge-stage') !== null || document.getElementById('cf-please-wait') !== null;
+      var isChallengeTitle = /just a moment|attention required|verify you are human/i.test(title);
+      var hasChallenge = isChallengeTitle || hasCFElement;
 
-    window.ReactNativeWebView.postMessage(JSON.stringify({
-      type: 'pageSignals',
-      title: title,
-      url: window.location.href,
-      hasChallenge: hasChallenge,
-      userAgent: userAgent
-    }));
-  } catch (error) {
-    window.ReactNativeWebView.postMessage(JSON.stringify({
-      type: 'pageSignalsError',
-      message: String(error)
-    }));
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'pageSignals',
+        title: title,
+        url: window.location.href,
+        hasChallenge: hasChallenge,
+        userAgent: userAgent
+      }));
+    } catch (error) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'pageSignalsError',
+        message: String(error)
+      }));
+    }
   }
+
+  sendSignals(); // immediate
+  setInterval(sendSignals, 1500); // continuous checks
 })();
 true;
 `;

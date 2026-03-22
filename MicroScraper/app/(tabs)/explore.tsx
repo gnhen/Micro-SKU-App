@@ -303,8 +303,8 @@ export default function SettingsScreen() {
           <Switch value={true} disabled thumbColor="#fff" trackColor={{ true: '#0173DF' }} />
         </View>
 
-        {/* ── Extras ── */}
-        <Text style={[styles.sectionLabel, { color: '#aaa', marginTop: 20 }]}>EXTRAS</Text>
+        {/* ── Tools ── */}
+        <Text style={[styles.sectionLabel, { color: '#aaa', marginTop: 20 }]}>TOOLS</Text>
         <View style={[styles.settingRow, { borderBottomColor: theme.border }]}>
           <View style={styles.tabRowLeft}>
             <Ionicons name="reader-outline" size={20} color="#aaa" style={styles.tabIcon} />

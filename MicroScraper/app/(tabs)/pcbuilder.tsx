@@ -22,6 +22,8 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { useRouter } from 'expo-router';
+import { createChallengeRequest } from '@/services/challengeSession';
 import {
   getCategories,
   getCategoryURL,
@@ -52,8 +54,21 @@ export default function PCBuilderScreen() {
   const [showSkuModal, setShowSkuModal] = useState(false);
   const [manualSku, setManualSku] = useState('');
   const [scrapingSku, setScrapingSku] = useState(null);
+  const [webViewUserAgent, setWebViewUserAgent] = useState<string | undefined>(undefined);
   const webViewRef = useRef(null);
   const skuWebViewRef = useRef(null);
+  const isChallengeActiveRef = useRef(false);
+  const router = useRouter();
+
+  const runChallengeFlow = async (url: string, sku: string = '') => {
+    const payload = {
+      searchedSku: sku,
+      challenge: { url },
+    };
+    const { requestId, promise } = createChallengeRequest(payload);
+    router.push({ pathname: '/challenge', params: { requestId } });
+    return promise;
+  };
 
   useEffect(() => {
     initializeData();
@@ -1016,12 +1031,43 @@ export default function PCBuilderScreen() {
         <View style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}>
           <WebView
             ref={webViewRef}
+            userAgent={webViewUserAgent}
+            sharedCookiesEnabled={true}
             source={{ uri: getCategoryURL(scrapingCategory, storeId) }}
             onLoadEnd={() => {
               console.log(`[PC Builder] WebView loaded for ${scrapingCategory}`);
               webViewRef.current?.injectJavaScript(getExtractionScript(scrapingCategory));
             }}
-            onMessage={(event) => {
+            onMessage={async (event) => {
+              try {
+                const data = JSON.parse(event.nativeEvent.data);
+                if (data.isChallenge) {
+                  if (isChallengeActiveRef.current) return;
+                  isChallengeActiveRef.current = true;
+                  
+                  console.log('[PC Builder] Challenge detected! Starting flow...');
+                  try {
+                    const result: any = await runChallengeFlow(data.url);
+                    
+                    if (result?.status === 'solved') {
+                      if (result.userAgent) {
+                        setWebViewUserAgent(result.userAgent);
+                      }
+                      if (webViewRef.current) {
+                        // @ts-ignore
+                        webViewRef.current.reload();
+                      }
+                    } else {
+                      setLoadingComponents(false);
+                      setScrapingCategory(null);
+                    }
+                  } finally {
+                    isChallengeActiveRef.current = false;
+                  }
+                  return;
+                }
+              } catch (e) {}
+
               handleWebViewMessage(event, scrapingCategory, (components) => {
                 setAvailableComponents(components);
                 setLoadingComponents(false);
@@ -1043,13 +1089,46 @@ export default function PCBuilderScreen() {
         <View style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}>
           <WebView
             ref={skuWebViewRef}
+            userAgent={webViewUserAgent}
+            sharedCookiesEnabled={true}
             source={{ uri: `https://www.microcenter.com/search/search_results.aspx?Ntt=${scrapingSku.sku}&myStore=true&storeid=${storeId}` }}
             onLoadEnd={() => {
               console.log(`[PC Builder SKU] WebView loaded, searching for SKU ${scrapingSku.sku}`);
               skuWebViewRef.current?.injectJavaScript(getExtractionScript('search'));
             }}
-            onMessage={(event) => {
+            onMessage={async (event) => {
               console.log(`[PC Builder SKU] Received message from WebView`);
+              try {
+                const data = JSON.parse(event.nativeEvent.data);
+                if (data.isChallenge) {
+                  if (isChallengeActiveRef.current) return;
+                  isChallengeActiveRef.current = true;
+                  
+                  console.log('[PC Builder SKU] Challenge detected! Starting flow...');
+                  try {
+                    const result: any = await runChallengeFlow(data.url, scrapingSku.sku);
+                    
+                    if (result?.status === 'solved') {
+                      if (result.userAgent) {
+                        setWebViewUserAgent(result.userAgent);
+                      }
+                      if (skuWebViewRef.current) {
+                        // @ts-ignore
+                        skuWebViewRef.current.reload();
+                      }
+                    } else {
+                      // @ts-ignore
+                      await removeComponent(scrapingSku.category.name, scrapingSku.sku);
+                      setScrapingSku(null);
+                      setManualSku('');
+                    }
+                  } finally {
+                    isChallengeActiveRef.current = false;
+                  }
+                  return;
+                }
+              } catch(e) {}
+
               handleWebViewMessage(event, 'search', async (components) => {
                 console.log(`[PC Builder SKU] Found ${components.length} results for SKU ${scrapingSku.sku}`);
                 

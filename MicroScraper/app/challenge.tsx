@@ -91,6 +91,7 @@ export default function ChallengeScreen() {
   // Use refs for values needed in the timeout to avoid recreating the callback and retriggering useEffect
   const currentUrlRef = useRef(initialUrl);
   const detectedUserAgentRef = useRef<string | undefined>(undefined);
+  const mountTimeRef = useRef(Date.now());
 
   // Keep refs in sync with state
   useEffect(() => { currentUrlRef.current = currentUrl; }, [currentUrl]);
@@ -141,13 +142,27 @@ export default function ChallengeScreen() {
     }
 
     const isMicroCenterPage = /microcenter\.com/i.test(url);
+
+    if (!searchedSku && isMicroCenterPage) {
+      if (challengeSeenRef.current) {
+        stopVerificationTimeout();
+        finish('solved', { finalUrl: url, userAgent: detectedUserAgentRef.current });
+      } else if (Date.now() - mountTimeRef.current > 3500) {
+        // We've been evaluating this page for over 3.5 seconds and never saw a challenge DOM. 
+        // It's highly likely it cleared naturally or we just got unblocked gracefully!
+        stopVerificationTimeout();
+        finish('solved', { finalUrl: url, userAgent: detectedUserAgentRef.current });
+      }
+      return;
+    }
+
     const inCorrectPath = url.includes('/product/') || url.includes('Ntt=') || url === 'https://www.microcenter.com/' || url === 'https://www.microcenter.com';
     
     if (isMicroCenterPage && inCorrectPath) {
       stopVerificationTimeout();
       beginExtraction();
     }
-  }, [beginExtraction, startVerificationTimeout, stopVerificationTimeout]);
+  }, [beginExtraction, startVerificationTimeout, stopVerificationTimeout, searchedSku, finish]);
 
   const handleClose = () => {
     finish('cancelled', { reason: 'cancelledByUser', finalUrl: currentUrl });

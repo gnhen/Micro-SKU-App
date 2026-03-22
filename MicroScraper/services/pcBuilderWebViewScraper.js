@@ -70,6 +70,21 @@ export function getExtractionScript(category) {
   return `
 (function() {
   try {
+    const title = document.title || '';
+    const hasCFElement = document.getElementById('challenge-stage') !== null || document.getElementById('cf-please-wait') !== null;
+    const isChallengeTitle = /just a moment|attention required|verify you are human/i.test(title);
+
+    if (isChallengeTitle || hasCFElement) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        success: false,
+        category: '${category}',
+        isChallenge: true,
+        url: window.location.href,
+        error: 'Challenge required'
+      }));
+      return;
+    }
+
     const products = [];
     
     // Method 1: Look for product articles/list items in Microcenter's structure
