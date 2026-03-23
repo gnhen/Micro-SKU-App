@@ -359,7 +359,7 @@ export default function SettingsScreen() {
           </View>
         </TouchableOpacity>
 
-        {(Platform.OS === 'android' || Platform.OS === 'ios') && (
+        {Platform.OS === 'ios' && (
           <TouchableOpacity 
             style={[styles.settingRow, { borderBottomColor: theme.border }]} 
             onPress={checkForUpdates}
