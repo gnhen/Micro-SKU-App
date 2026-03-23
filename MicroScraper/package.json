@@ -1,7 +1,7 @@
 {
   "name": "microscraper",
   "main": "expo-router/entry",
-  "version": "0.3.104",
+  "version": "0.3.105",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
