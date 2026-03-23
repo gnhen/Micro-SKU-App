@@ -32,8 +32,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "permissions": [
-        "REQUEST_INSTALL_PACKAGES",
-        "android.permission.INSTALL_PACKAGES"
+        "CAMERA"
       ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
