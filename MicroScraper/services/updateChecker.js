@@ -24,7 +24,7 @@ const compareVersions = (v1, v2) => {
   return 0; // Equal
 };
 
-export const checkForUpdates = async () => {
+export const checkForUpdates = async (silentOnUpToDate = false) => {
   try {
     console.log('[Update] Checking for updates...');
     const response = await fetch(GITHUB_API_URL);
@@ -46,10 +46,12 @@ export const checkForUpdates = async () => {
   
     if (comparison >= 0) {
       console.log('[Update] App is up to date.');
-      Alert.alert(
-        'Already up to date', 
-        `You're running the latest version (${currentVersion}).`
-      );
+      if (!silentOnUpToDate) {
+        Alert.alert(
+          'Already up to date', 
+          `You're running the latest version (${currentVersion}).`
+        );
+      }
       return;
     }
     
