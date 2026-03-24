@@ -15,7 +15,7 @@ jobs:
     # change this path to just './MicroScraper/android'
     defaults:
       run:
-        working-directory: ./Micro-SKU-APP/MicroScraper/android
+        working-directory: ./MicroScraper/android
 
     steps:
     - uses: actions/checkout@v4
