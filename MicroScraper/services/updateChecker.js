@@ -43,6 +43,10 @@ export const checkForUpdates = async (silentOnUpToDate = false) => {
     
     console.log(`[Update] Current: ${currentVersion}, Latest: ${latestVersion}`);
     
+    if (silentOnUpToDate) {
+      return latestVersion;
+    }
+    
     // Check if latestVersion is actually newer than currentVersion
     // compareVersions returns -1 if current < latest
     const comparison = compareVersions(currentVersion, latestVersion);

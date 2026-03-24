@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Text, View, TextInput, TouchableOpacity, Modal, ScrollView, 
-  StyleSheet, Switch, StatusBar, Platform, Alert, ActivityIndicator
+  StyleSheet, Switch, StatusBar, Platform, Alert, ActivityIndicator, Linking
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
@@ -142,11 +142,18 @@ export default function SettingsScreen() {
 
   const { department, selectedTabs, setDepartment, setSelectedTabs, showMoreTab, plansEnabled, setPlansEnabled } = useSettings();
 
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
+
   useFocusEffect(
     React.useCallback(() => {
       AsyncStorage.getItem('storeId').then(id => { 
         if (id) setStoreId(id); 
       });
+      if (Platform.OS === 'ios') {
+        checkForUpdates(true).then(v => {
+          if (v) setLatestVersion(v as string);
+        }).catch(() => {});
+      }
     }, [])
   );
 
@@ -362,10 +369,10 @@ export default function SettingsScreen() {
         {Platform.OS === 'ios' && (
           <TouchableOpacity 
             style={[styles.settingRow, { borderBottomColor: theme.border }]} 
-            onPress={checkForUpdates}
+            onPress={() => Linking.openURL('https://github.com/gnhen/Micro-SKU-App/releases/latest')}
           >
-            <Text style={[styles.label, { color: theme.text }]}>Check for Updates</Text>
-            <Text style={{ color: '#0173DF', fontSize: 16 }}>v{versionInfo.version}</Text>
+            <Text style={[styles.label, { color: theme.text }]}>View Latest Release</Text>
+            <Text style={{ color: '#0173DF', fontSize: 16 }}>{latestVersion ? latestVersion : `v${versionInfo.version}`}</Text>
           </TouchableOpacity>
         )}
 
