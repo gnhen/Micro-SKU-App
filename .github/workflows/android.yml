@@ -9,27 +9,37 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
-    # 1. ADD THIS BLOCK
-    # Note: If 'Micro-SKU-APP' is the name of your GitHub repository itself, 
-    # change this path to just './MicroScraper/android'
-    defaults:
-      run:
-        working-directory: ./MicroScraper/android
 
     steps:
     - uses: actions/checkout@v4
-    
-    # 2. PRO TIP: You may need to change this to Java 17
-    - name: set up JDK 11
+
+    # 1. Set up Node and install your Expo packages
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20' 
+        
+    - name: Install dependencies
+      working-directory: ./MicroScraper
+      run: npm install
+
+    # 2. Generate the missing android/ directory
+    - name: Expo Prebuild
+      working-directory: ./MicroScraper
+      run: npx expo prebuild --platform android
+
+    # 3. Standard Android build steps (Switched to Java 17 for Expo compatibility)
+    - name: set up JDK 17
       uses: actions/setup-java@v4
       with:
-        java-version: '11'
+        java-version: '17'
         distribution: 'temurin'
         cache: gradle
 
     - name: Grant execute permission for gradlew
+      working-directory: ./MicroScraper/android
       run: chmod +x gradlew
       
     - name: Build with Gradle
+      working-directory: ./MicroScraper/android
       run: ./gradlew build
