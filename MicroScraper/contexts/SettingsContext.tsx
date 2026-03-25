@@ -12,6 +12,8 @@ export type Department =
   | 'Service'
   | 'Front End';
 
+export type ThemePreference = 'system' | 'light' | 'dark';
+
 export const DEPARTMENTS: Department[] = [
   'General Sales',
   'Build Your Own',
@@ -47,9 +49,11 @@ interface SettingsContextValue {
   overflowTabs: TabRoute[];
   showMoreTab: boolean;
   plansEnabled: boolean;
+  themePreference: ThemePreference;
   setDepartment: (dept: Department) => void;
   setSelectedTabs: (tabs: TabRoute[]) => void;
   setPlansEnabled: (val: boolean) => void;
+  setThemePreference: (val: ThemePreference) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -86,19 +90,24 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     DEPARTMENT_DEFAULTS['General Sales']
   );
   const [plansEnabled, setPlansEnabledState] = useState(false);
+  const [themePreference, setThemePreferenceState] = useState<ThemePreference>('system');
 
   // Load persisted settings
   useEffect(() => {
     (async () => {
       try {
-        const [dept, tabs, plans] = await Promise.all([
+        const [dept, tabs, plans, theme] = await Promise.all([
           AsyncStorage.getItem('department'),
           AsyncStorage.getItem('selectedTabs'),
           AsyncStorage.getItem('plansEnabled'),
+          AsyncStorage.getItem('themePreference'),
         ]);
         if (dept) setDepartmentState(dept as Department);
         if (tabs) setSelectedTabsState(JSON.parse(tabs));
         if (plans !== null) setPlansEnabledState(JSON.parse(plans));
+        if (theme === 'system' || theme === 'light' || theme === 'dark') {
+          setThemePreferenceState(theme);
+        }
       } catch (_) {}
     })();
   }, []);
@@ -144,6 +153,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem('plansEnabled', JSON.stringify(val));
   };
 
+  const setThemePreference = async (val: ThemePreference) => {
+    setThemePreferenceState(val);
+    await AsyncStorage.setItem('themePreference', val);
+  };
+
   const { visibleTabs, overflowTabs, showMoreTab } = computeVisibility(selectedTabs);
 
   return (
@@ -155,9 +169,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         overflowTabs,
         showMoreTab,
         plansEnabled,
+        themePreference,
         setDepartment,
         setSelectedTabs,
         setPlansEnabled,
+        setThemePreference,
       }}
     >
       {children}

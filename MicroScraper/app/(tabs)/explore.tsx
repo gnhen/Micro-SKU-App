@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Text, View, TextInput, TouchableOpacity, Modal, ScrollView, 
-  StyleSheet, Switch, StatusBar, Platform, Alert, ActivityIndicator, Linking
+  StyleSheet, Switch, StatusBar, Alert, ActivityIndicator, Linking
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
@@ -18,11 +18,14 @@ import {
   DEPARTMENT_DEFAULTS,
   TabRoute,
   Department,
+  ThemePreference,
 } from '@/contexts/SettingsContext';
 
 type DeckRow =
   | { type: 'section'; title: string }
   | { type: 'entry'; deck: string; definition: string };
+
+type FeedbackMode = 'feedback' | 'references';
 
 const DECK_ROWS: DeckRow[] = [
   { type: 'section', title: 'Primary Assortment' },
@@ -132,15 +135,28 @@ export default function SettingsScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const [storeId, setStoreId] = useState('071');
   const [storeModalVisible, setStoreModalVisible] = useState(false);
+  const [themeModalVisible, setThemeModalVisible] = useState(false);
   const [deptModalVisible, setDeptModalVisible] = useState(false);
   const [deckModalVisible, setDeckModalVisible] = useState(false);
   const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
+  const [feedbackStoreModalVisible, setFeedbackStoreModalVisible] = useState(false);
+  const [feedbackMode, setFeedbackMode] = useState<FeedbackMode>('feedback');
   const [feedbackName, setFeedbackName] = useState('');
   const [feedbackStore, setFeedbackStore] = useState('');
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
 
-  const { department, selectedTabs, setDepartment, setSelectedTabs, showMoreTab, plansEnabled, setPlansEnabled } = useSettings();
+  const {
+    department,
+    selectedTabs,
+    setDepartment,
+    setSelectedTabs,
+    showMoreTab,
+    plansEnabled,
+    setPlansEnabled,
+    themePreference,
+    setThemePreference,
+  } = useSettings();
 
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
 
@@ -149,11 +165,9 @@ export default function SettingsScreen() {
       AsyncStorage.getItem('storeId').then(id => { 
         if (id) setStoreId(id); 
       });
-      if (Platform.OS === 'ios') {
-        checkForUpdates(true).then(v => {
-          if (v) setLatestVersion(v as string);
-        }).catch(() => {});
-      }
+      checkForUpdates(true).then(v => {
+        if (v) setLatestVersion(v as string);
+      }).catch(() => {});
     }, [])
   );
 
@@ -171,8 +185,20 @@ export default function SettingsScreen() {
   };
 
   const currentStoreName = STORES.find((s: any) => s.id === storeId)?.name || 'Unknown';
+  const themeLabel =
+    themePreference === 'system'
+      ? `System Selection`
+      : themePreference === 'dark'
+        ? 'Dark'
+        : 'Light';
 
-  const openFeedbackModal = () => {
+  const onThemeSelect = (nextTheme: ThemePreference) => {
+    setThemePreference(nextTheme);
+    setThemeModalVisible(false);
+  };
+
+  const openFeedbackModal = (mode: FeedbackMode) => {
+    setFeedbackMode(mode);
     if (!feedbackStore.trim()) {
       setFeedbackStore(`${storeId} - ${currentStoreName}`);
     }
@@ -197,14 +223,19 @@ export default function SettingsScreen() {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name, store, feedback }),
+        body: JSON.stringify({
+          type: feedbackMode,
+          name,
+          store,
+          feedback,
+        }),
       });
 
       if (!response.ok) {
         throw new Error(`Form submission failed (${response.status})`);
       }
 
-      Alert.alert('Thanks!', 'Your feedback was submitted.');
+      Alert.alert('Thanks!', feedbackMode === 'references' ? 'Your references were submitted.' : 'Your feedback was submitted.');
       setFeedbackModalVisible(false);
       setFeedbackName('');
       setFeedbackStore(`${storeId} - ${currentStoreName}`);
@@ -335,16 +366,36 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        <TouchableOpacity
+          style={[styles.settingRow, { borderBottomColor: theme.border }]}
+          onPress={() => openFeedbackModal('references')}
+        >
+          <View style={styles.tabRowLeft}>
+            <Ionicons name="paper-plane-outline" size={20} color="#aaa" style={styles.tabIcon} />
+            <Text style={[styles.label, { color: theme.text }]}>Send References</Text>
+          </View>
+          <View style={styles.rowRight}>
+            <Text style={{ color: '#0173DF', fontSize: 15 }}>Fill out Form</Text>
+            <Ionicons name="chevron-forward" size={16} color="#aaa" />
+          </View>
+        </TouchableOpacity>
+
         {/* ── Store ── */}
         <Text style={[styles.sectionLabel, { color: '#aaa', marginTop: 20 }]}>GENERAL</Text>
-        <View style={[styles.settingRow, { borderBottomColor: theme.border }]}>
+        <TouchableOpacity
+          style={[styles.settingRow, { borderBottomColor: theme.border }]}
+          onPress={() => setThemeModalVisible(true)}
+        >
           <Text style={[styles.label, { color: theme.text }]}>Theme</Text>
-          <Text style={{ color: theme.text, fontSize: 16 }}>System ({colorScheme === 'dark' ? 'Dark' : 'Light'})</Text>
-        </View>
+          <View style={styles.rowRight}>
+            <Text style={{ color: '#0173DF', fontSize: 15 }}>{themeLabel}</Text>
+            <Ionicons name="chevron-forward" size={16} color="#aaa" />
+          </View>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.settingRow, { borderBottomColor: theme.border }]}
-          onPress={openFeedbackModal}
+          onPress={() => openFeedbackModal('feedback')}
         >
           <Text style={[styles.label, { color: theme.text }]}>Send Feedback</Text>
           <View style={styles.rowRight}>
@@ -366,21 +417,52 @@ export default function SettingsScreen() {
           </View>
         </TouchableOpacity>
 
-        {Platform.OS === 'ios' && (
-          <TouchableOpacity 
-            style={[styles.settingRow, { borderBottomColor: theme.border }]} 
-            onPress={() => Linking.openURL('https://github.com/gnhen/Micro-SKU-App/releases/latest')}
-          >
-            <Text style={[styles.label, { color: theme.text }]}>View Latest Release</Text>
-            <Text style={{ color: '#0173DF', fontSize: 16 }}>{latestVersion ? latestVersion : `v${versionInfo.version}`}</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity 
+          style={[styles.settingRow, { borderBottomColor: theme.border }]} 
+          onPress={() => Linking.openURL('https://github.com/gnhen/Micro-SKU-App/releases/latest')}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>View Latest Release</Text>
+          <Text style={{ color: '#0173DF', fontSize: 16 }}>{latestVersion ? latestVersion : `v${versionInfo.version}`}</Text>
+        </TouchableOpacity>
 
         <View style={{ height: 40 }} />
         <Text style={styles.versionText}>Build v{versionInfo.version} - by Grant Hendricks</Text>
         {storeId === '071' && <Text style={[styles.versionText, { color: '#727272', fontWeight: '200', marginTop: 6 }]}>Sharonville Rocks</Text>}
         <View style={{ height: 30 }} />
       </ScrollView>
+
+      {/* ── Department picker ── */}
+      <Modal visible={themeModalVisible} animationType="slide" transparent>
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}> 
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Select Theme</Text>
+
+            {([
+              { key: 'system', label: `System (${colorScheme === 'dark' ? 'Dark' : 'Light'})` },
+              { key: 'light', label: 'Light' },
+              { key: 'dark', label: 'Dark' },
+            ] as { key: ThemePreference; label: string }[]).map(option => (
+              <TouchableOpacity
+                key={option.key}
+                style={[styles.storeOption, { borderBottomColor: theme.border }]}
+                onPress={() => onThemeSelect(option.key)}
+              >
+                <Text style={{ fontSize: 16, color: theme.text }}>{option.label}</Text>
+                {themePreference === option.key && (
+                  <Ionicons name="checkmark" size={18} color="#0173DF" />
+                )}
+              </TouchableOpacity>
+            ))}
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setThemeModalVisible(false)}
+            >
+              <Text style={{ color: 'white', fontWeight: 'bold' }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── Department picker ── */}
       <Modal visible={deptModalVisible} animationType="slide" transparent>
@@ -450,7 +532,7 @@ export default function SettingsScreen() {
       <Modal visible={feedbackModalVisible} animationType="slide" transparent>
         <View style={styles.modalContainer}>
           <View style={[styles.modalContent, { backgroundColor: theme.card }]}> 
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Send Feedback</Text>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{feedbackMode === 'references' ? 'Send References' : 'Send Feedback'}</Text>
 
             <Text style={[styles.feedbackLabel, { color: theme.text }]}>Name</Text>
             <TextInput
@@ -462,20 +544,22 @@ export default function SettingsScreen() {
             />
 
             <Text style={[styles.feedbackLabel, { color: theme.text }]}>Store</Text>
-            <TextInput
-              style={[styles.feedbackInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bg }]}
-              value={feedbackStore}
-              onChangeText={setFeedbackStore}
-              placeholder="Store"
-              placeholderTextColor="#999"
-            />
+            <TouchableOpacity
+              style={[styles.feedbackInput, styles.feedbackSelectInput, { borderColor: theme.border, backgroundColor: theme.bg }]}
+              onPress={() => setFeedbackStoreModalVisible(true)}
+            >
+              <Text style={{ color: feedbackStore ? theme.text : '#999', fontSize: 15, flex: 1 }}>
+                {feedbackStore || 'Select store'}
+              </Text>
+              <Ionicons name="chevron-down" size={16} color="#999" />
+            </TouchableOpacity>
 
             <Text style={[styles.feedbackLabel, { color: theme.text }]}>Feedback</Text>
             <TextInput
               style={[styles.feedbackInput, styles.feedbackTextArea, { color: theme.text, borderColor: theme.border, backgroundColor: theme.bg }]}
               value={feedbackText}
               onChangeText={setFeedbackText}
-              placeholder="Type your feedback"
+              placeholder={feedbackMode === 'references' ? 'Please send in references from other stores! Files should be uploaded elsewhere and shared via a link in this box.' : 'Type your feedback'}
               placeholderTextColor="#999"
               multiline
               textAlignVertical="top"
@@ -501,6 +585,41 @@ export default function SettingsScreen() {
                 }
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={feedbackStoreModalVisible} animationType="slide" transparent>
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}> 
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Select Store</Text>
+            <ScrollView>
+              {STORES.map((store: any) => {
+                const storeLabel = `${store.id} - ${store.name}`;
+                return (
+                  <TouchableOpacity
+                    key={`feedback-${store.id}`}
+                    style={[styles.storeOption, { borderBottomColor: theme.border }]}
+                    onPress={() => {
+                      setFeedbackStore(storeLabel);
+                      setFeedbackStoreModalVisible(false);
+                    }}
+                  >
+                    <Text style={{ fontSize: 16, color: theme.text }}>{store.name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ color: 'gray' }}>{store.id}</Text>
+                      {feedbackStore === storeLabel && <Ionicons name="checkmark" size={18} color="#0173DF" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setFeedbackStoreModalVisible(false)}
+            >
+              <Text style={{ color: 'white', fontWeight: 'bold' }}>Close</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -575,6 +694,7 @@ const styles = StyleSheet.create({
   deckDefinitionCell:{ flex: 1, fontSize: 13, lineHeight: 18 },
   feedbackLabel: { fontSize: 14, fontWeight: '700', marginBottom: 6, marginTop: 4 },
   feedbackInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 12 },
+  feedbackSelectInput: { flexDirection: 'row', alignItems: 'center' },
   feedbackTextArea: { minHeight: 120 },
   feedbackActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
   feedbackActionBtn: { borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10, minWidth: 90, alignItems: 'center' },

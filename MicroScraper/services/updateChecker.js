@@ -25,7 +25,7 @@ const compareVersions = (v1, v2) => {
 };
 
 export const checkForUpdates = async (silentOnUpToDate = false) => {
-  if (Platform.OS === 'android') {
+  if (Platform.OS === 'android' && !silentOnUpToDate) {
     return;
   }
   
