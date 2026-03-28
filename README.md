@@ -1,17 +1,7 @@
 <img src="MicroScraper/assets/images/icon.png" width="175">
 
 # Micro SKU App
-### Employees can use this app to do the following
-##### 1. Scan SKUs and UPCs
-##### 2. Search for products in plain text
-##### 3. Create lists of products with prices and stock amounts
-##### 4. Bulk scan SKUs for a list
-##### 5. Build PCs with a part picker
-##### 6. View scanning history
-##### 7. Select their store
-##### 8. Select their department
-##### 9. Customize their toolbar
-##### 10. Use either Dark or Light mode
+## Toolbelt for employees to scan items, create lists, view service plans and plan sheets, build PCs, and more!
 
 # Installation
 
