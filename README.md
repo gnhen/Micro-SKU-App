@@ -13,9 +13,18 @@
 ##### 9. Customize their toolbar
 ##### 10. Use either Dark or Light mode
 
-## Installation
+# Installation
 
-##### Developer accounts are expensive, so for now, Sideloading is the best option for devices.
+## iOS
+### Please join the TestFlight to install the app!
+[![Join the TestFlight Beta](https://img.shields.io/badge/TestFlight-Join%20the%20Beta-007AFF?style=for-the-badge&logo=apple)](https://testflight.apple.com/join/FtctheZg)
+
+## Android
+### Android is in the process for being uploaded to the Play Store. Please sit tight, or download the .apk below!
+
+
+
+## Sideloading
 
 ## Android
 1. Visit the [Releases](https://github.com/gnhen/Micro-SKU-App/releases/latest) tab.
