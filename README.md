@@ -1,7 +1,7 @@
 <img src="MicroScraper/assets/images/icon.png" width="175">
 
 # Micro SKU App
-## Toolbelt for employees to scan items, create lists, view service plans and plan sheets, build PCs, and more!
+#### Toolbelt for employees to scan items, create lists, view service plans and plan sheets, build PCs, and more!
 
 # Installation
 
