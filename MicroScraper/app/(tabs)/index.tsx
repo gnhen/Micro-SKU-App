@@ -255,6 +255,17 @@ export default function ScanScreen() {
     setFullScreenImage(STORE_071_MAP_IMAGE);
   };
 
+  const handlePriceMatchPress = () => {
+    const rawUpc = String((data as any)?.upc ?? '').trim();
+    const normalizedUpc = rawUpc.replace(/\D/g, '');
+    const query = normalizedUpc || rawUpc;
+
+    if (!query) return;
+
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+    Linking.openURL(searchUrl);
+  };
+
   const animatedStyle = useAnimatedStyle(() => {
     return {
       transform: [
@@ -1187,34 +1198,48 @@ export default function ScanScreen() {
                   </>
                 )}
               </View>
-              {storeId === '071' && (
-                <TouchableOpacity
-                  style={styles.storeDatCodeButton}
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    const codes = store071MergedCodes.length > 0
-                      ? store071MergedCodes
-                      : (store071MergedCode ? [store071MergedCode] : []);
-                    openStoreMapForCodes(codes);
-                  }}
-                >
-                  <Text style={styles.storeDatCodeButtonText}>Find Item</Text>
-                </TouchableOpacity>
-              )}
+              <View style={styles.reviewsActions}>
+                {storeId === '071' && (
+                  <TouchableOpacity
+                    style={styles.storeDatCodeButton}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      const codes = store071MergedCodes.length > 0
+                        ? store071MergedCodes
+                        : (store071MergedCode ? [store071MergedCode] : []);
+                      openStoreMapForCodes(codes);
+                    }}
+                  >
+                    <Text style={styles.storeDatCodeButtonText}>Find Item</Text>
+                  </TouchableOpacity>
+                )}
+                {data.upc && (
+                  <TouchableOpacity
+                    style={styles.priceMatchButton}
+                    activeOpacity={0.85}
+                    onPress={handlePriceMatchPress}
+                  >
+                    <Text style={styles.priceMatchButtonText}>Price Match</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           </View>
 
-          {/* Location */}
-          {data.location && (
-            <Text selectable style={[styles.infoText, { color: theme.text }]}>Location: {data.location}</Text>
-          )}
-          
-          {data.mfrPart && (
-            <Text selectable style={[styles.infoText, { color: theme.text }]}>Mfr Part#: {data.mfrPart}</Text>
-          )}
-          {data.upc && (
-            <Text selectable style={[styles.infoText, { color: theme.text }]}>UPC: {data.upc}</Text>
-          )}
+          <View style={styles.productMetaBlock}>
+            {data.location && (
+              <Text selectable style={[styles.infoText, { color: theme.text }]}>Location: {data.location}</Text>
+            )}
+            {data.mfrPart && (
+              <Text selectable style={[styles.infoText, { color: theme.text }]}>Mfr Part#: {data.mfrPart}</Text>
+            )}
+            {data.upc && (
+              <Text selectable style={[styles.infoText, { color: theme.text }]}>UPC: {data.upc}</Text>
+            )}
+            {(((data as any)?.sku) || sku) && (
+              <Text selectable style={[styles.infoText, { color: theme.text }]}>SKU: {((data as any)?.sku) || sku}</Text>
+            )}
+          </View>
 
           {/* Pro Installation Section */}
           {data.proInstallation && data.proInstallation.length > 0 && (
@@ -1560,10 +1585,14 @@ const styles = StyleSheet.create({
   reviewsContainer: { marginVertical: 10 },
   reviewsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   reviewsLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  reviewsActions: { alignItems: 'flex-end', gap: 6 },
   reviewStars: { fontSize: 18 },
   reviewText: { fontSize: 14, fontWeight: '500' },
   storeDatCodeButton: { backgroundColor: '#C00', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 7 },
   storeDatCodeButtonText: { color: 'white', fontSize: 13, fontWeight: '700' },
+  productMetaBlock: { marginBottom: 5 },
+  priceMatchButton: { backgroundColor: '#0173DF', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 7 },
+  priceMatchButtonText: { color: 'white', fontSize: 13, fontWeight: '700' },
   servicesContainer: { marginVertical: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#ddd' },
   serviceText: { fontSize: 14, marginLeft: 10, marginBottom: 4 },
   specsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingVertical: 8 },
