@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.microscraper.app",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "supportsTablet": true,
       "deploymentTarget": "13.4",
       "infoPlist": {
