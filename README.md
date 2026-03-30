@@ -1,21 +1,20 @@
 <img src="MicroScraper/assets/images/icon.png" width="175">
 
 # Micro SKU App
-### Employees can use this app to do the following
-##### 1. Scan SKUs and UPCs
-##### 2. Search for products in plain text
-##### 3. Create lists of products with prices and stock amounts
-##### 4. Bulk scan SKUs for a list
-##### 5. Build PCs with a part picker
-##### 6. View scanning history
-##### 7. Select their store
-##### 8. Select their department
-##### 9. Customize their toolbar
-##### 10. Use either Dark or Light mode
+#### Toolbelt for employees to scan items, create lists, view service plans and plan sheets, build PCs, and more!
 
-## Installation
+# Installation
 
-##### Developer accounts are expensive, so for now, Sideloading is the best option for devices.
+## iOS
+### Please join the TestFlight to install the app!
+[![Join the TestFlight Beta](https://img.shields.io/badge/TestFlight-Join%20the%20Beta-007AFF?style=for-the-badge&logo=apple)](https://testflight.apple.com/join/FtctheZg)
+
+## Android
+### Android is in the process for being uploaded to the Play Store. Please sit tight, or download the .apk below!
+
+
+
+## Sideloading
 
 ## Android
 1. Visit the [Releases](https://github.com/gnhen/Micro-SKU-App/releases/latest) tab.
