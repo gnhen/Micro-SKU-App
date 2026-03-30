@@ -152,8 +152,6 @@ export default function SettingsScreen() {
     setDepartment,
     setSelectedTabs,
     showMoreTab,
-    plansEnabled,
-    setPlansEnabled,
     themePreference,
     setThemePreference,
   } = useSettings();
@@ -343,19 +341,6 @@ export default function SettingsScreen() {
 
         {/* ── Tools ── */}
         <Text style={[styles.sectionLabel, { color: '#aaa', marginTop: 20 }]}>TOOLS</Text>
-        <View style={[styles.settingRow, { borderBottomColor: theme.border }]}>
-          <View style={styles.tabRowLeft}>
-            <Ionicons name="reader-outline" size={20} color="#aaa" style={styles.tabIcon} />
-            <Text style={[styles.label, { color: theme.text }]}>Plans</Text>
-          </View>
-          <Switch
-            value={plansEnabled}
-            onValueChange={(val) => setPlansEnabled(val)}
-            thumbColor="#fff"
-            trackColor={{ true: '#0173DF', false: '#ccc' }}
-          />
-        </View>
-
         <View style={[styles.settingRow, { borderBottomColor: theme.border }]}> 
           <View style={styles.tabRowLeft}>
             <Ionicons name="refresh" size={20} color="#aaa" style={styles.tabIcon} />

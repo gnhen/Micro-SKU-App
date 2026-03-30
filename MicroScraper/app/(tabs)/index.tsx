@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Text, View, TextInput, TouchableOpacity, ScrollView, 
-  StyleSheet, Alert, Image, Modal, Dimensions, PixelRatio, Platform, StatusBar, Linking, ActivityIndicator
+  StyleSheet, Alert, Image, Modal, Dimensions, PixelRatio, Platform, StatusBar, Linking, ActivityIndicator, TouchableWithoutFeedback
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -14,6 +14,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 
 import { WebView } from 'react-native-webview';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
+import { STORES } from '../../constants';
 import { initDatabase, addComponent } from '@/services/database';
 import { detectComponentCategory, extractComponentSpecs } from '@/services/componentDetector';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -97,8 +98,20 @@ export default function ScanScreen() {
   const [detectedCategory, setDetectedCategory] = useState(null);
   const [addingToList, setAddingToList] = useState(false);
   const [showListPickerModal, setShowListPickerModal] = useState(false);
+  const [showPriceMatchModal, setShowPriceMatchModal] = useState(false);
+  const [showPriceMatchWebModal, setShowPriceMatchWebModal] = useState(false);
+  const [priceMatchWebUrl, setPriceMatchWebUrl] = useState<string | null>(null);
+  const [priceMatchResults, setPriceMatchResults] = useState({
+    amazon: { loading: false, price: null as string | null, stockStatus: null as string | null, seller: null as string | null, eligible: true, note: null as string | null, matchedUrl: null as string | null },
+    bestbuy: { loading: false, price: null as string | null, stockStatus: null as string | null, seller: null as string | null, eligible: true, note: null as string | null, matchedUrl: null as string | null },
+    bh: { loading: false, price: null as string | null, stockStatus: null as string | null, seller: null as string | null, eligible: true, note: null as string | null, matchedUrl: null as string | null },
+  });
   const [pendingListItem, setPendingListItem] = useState<ListItem | null>(null);
   const [availableListsForPicker, setAvailableListsForPicker] = useState<ItemList[]>([]);
+
+  const logPriceMatch = (...args: any[]) => {
+    console.log('[price-match]', ...args);
+  };
 
   const mismatchAlertActive = useRef(false);
   const noResultsAlertActive = useRef(false);
@@ -115,7 +128,7 @@ export default function ScanScreen() {
   const [mapMatchIndex, setMapMatchIndex] = useState(0);
   const [mapSearchCode, setMapSearchCode] = useState<string | null>(null);
 
-  const { selectedTabs, plansEnabled, department } = useSettings();
+  const { selectedTabs, department } = useSettings();
   const listTabActive = selectedTabs.includes('list');
   const router = useRouter();
 
@@ -256,13 +269,418 @@ export default function ScanScreen() {
   };
 
   const handlePriceMatchPress = () => {
-    const rawUpc = String((data as any)?.upc ?? '').trim();
-    const normalizedUpc = rawUpc.replace(/\D/g, '');
-    const query = normalizedUpc || rawUpc;
+    const query = getPriceMatchQuery();
 
     if (!query) return;
 
     const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+    setPriceMatchWebUrl(searchUrl);
+    setShowPriceMatchWebModal(true);
+  };
+
+  const renderRatingStars = (rating: number) => {
+    const safeRating = Number.isFinite(rating) ? Math.max(0, Math.min(5, rating)) : 0;
+    return (
+      <View style={styles.ratingStarsRow}>
+        {Array.from({ length: 5 }).map((_, idx) => {
+          const fill = Math.max(0, Math.min(1, safeRating - idx));
+          return (
+            <View key={`star-${idx}`} style={styles.ratingStarWrap}>
+              <Text style={styles.ratingStarBase}>★</Text>
+              <View style={[styles.ratingStarFillWrap, { width: `${fill * 100}%` }]}> 
+                <Text style={styles.ratingStarFill}>★</Text>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
+  const getPriceMatchQuery = () => {
+    const rawUpc = String((data as any)?.upc ?? '').trim();
+    const normalizedUpc = rawUpc.replace(/\D/g, '');
+    return normalizedUpc || rawUpc;
+  };
+
+  const parseAmazonData = (html: string) => {
+    const priceFromJson = html.match(/"priceToPay"\s*:\s*\{\s*"price"\s*:\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+    const priceFromMarkup = html.match(/\$\s?([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/);
+    const price = priceFromJson?.[1]
+      ? `$${Number(priceFromJson[1]).toFixed(2)}`
+      : (priceFromMarkup?.[0] ?? null);
+
+    const stockMatch = html.match(/In Stock|Currently unavailable|Out of stock|Temporarily out of stock/i);
+    const stockStatus = stockMatch?.[0] ?? null;
+
+    const soldByMatch = html.match(/Sold by<\/?span[^>]*>\s*<span[^>]*>\s*([^<]+)/i);
+    const shipsFromMatch = html.match(/Ships from<\/?span[^>]*>\s*<span[^>]*>\s*([^<]+)/i);
+    const seller = soldByMatch?.[1]?.trim() || shipsFromMatch?.[1]?.trim() || null;
+
+    return { price, stockStatus, seller };
+  };
+
+  const parseBestBuyData = (html: string) => {
+    const currentPriceMatch = html.match(/"currentPrice"\s*:\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+    const salePriceMatch = html.match(/"salePrice"\s*:\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+    const genericPriceMatch = html.match(/\$\s?([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/);
+    const priceValue = currentPriceMatch?.[1] || salePriceMatch?.[1];
+    const price = priceValue ? `$${Number(priceValue).toFixed(2)}` : (genericPriceMatch?.[0] ?? null);
+
+    const stockMatch = html.match(/Sold Out|Unavailable|Coming Soon|Add to Cart|Get it today/i);
+    const stockStatus = stockMatch?.[0] ?? null;
+
+    const sellerMatch = html.match(/Sold and shipped by\s*([^<\n]+)/i);
+    const seller = sellerMatch?.[1]?.trim() || 'Best Buy';
+
+    return { price, stockStatus, seller };
+  };
+
+  const parseBhData = (html: string) => {
+    const jsonPriceMatch = html.match(/"price"\s*:\s*"?\$?([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)"?/i);
+    const genericPriceMatch = html.match(/\$\s?([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/);
+    const price = jsonPriceMatch?.[1] ? `$${jsonPriceMatch[1]}` : (genericPriceMatch?.[0] ?? null);
+
+    const stockMatch = html.match(/In Stock|Back-Ordered|Temporarily Out of Stock|Out of Stock|Discontinued/i);
+    const stockStatus = stockMatch?.[0] ?? null;
+
+    const sellerMatch = html.match(/Sold by\s*([^<\n]+)/i);
+    const seller = sellerMatch?.[1]?.trim() || 'B&H Photo Video';
+
+    return { price, stockStatus, seller };
+  };
+
+  const getSelectedStoreAreaName = () => {
+    const selectedStore = STORES.find((s: any) => s.id === storeId);
+    return String(selectedStore?.name ?? '').trim();
+  };
+
+  const isAmazonSellerCompliant = (seller: string | null) => {
+    if (!seller) return false;
+    const normalized = seller.toLowerCase().replace(/\s+/g, '');
+    return normalized.includes('amazon.com') || normalized === 'amazon';
+  };
+
+  const isBestBuyAreaCompliant = (html: string, areaName: string, stockStatus: string | null) => {
+    if (!areaName) return false;
+
+    const normalizedArea = areaName.toLowerCase();
+    const htmlLower = html.toLowerCase();
+    const hasAreaMention = htmlLower.includes(normalizedArea);
+    const hasInStockSignal = Boolean(stockStatus && /add to cart|get it today|pickup today|in stock/i.test(stockStatus));
+
+    return hasAreaMention && hasInStockSignal;
+  };
+
+  const extractTopSearchResults = (html: string, maxCount = 10) => {
+    const hrefMatches = Array.from(html.matchAll(/href=["']([^"']+)["']/gi));
+    const links: string[] = [];
+    const seen = new Set<string>();
+
+    const decodeEntities = (value: string) => value
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>');
+
+    const normalizeCandidateUrl = (raw: string): string | null => {
+      let candidate = decodeEntities(String(raw || '').trim());
+      if (!candidate) return null;
+
+      if (/^javascript:|^mailto:|^tel:/i.test(candidate)) return null;
+
+      if (candidate.startsWith('/url?q=')) {
+        const q = candidate.replace('/url?q=', '').split('&')[0] || '';
+        candidate = decodeURIComponent(q);
+      }
+
+      if (/\/l\/\?/.test(candidate) && /uddg=/i.test(candidate)) {
+        const uddgPart = candidate.split('uddg=')[1]?.split('&')[0] || '';
+        if (uddgPart) {
+          candidate = decodeURIComponent(uddgPart);
+        }
+      }
+
+      if (candidate.startsWith('//')) {
+        candidate = `https:${candidate}`;
+      }
+
+      if (!/^https?:\/\//i.test(candidate)) return null;
+      return candidate;
+    };
+
+    const isExternalResult = (urlText: string) => {
+      try {
+        const host = new URL(urlText).hostname.toLowerCase();
+        const blockedHosts = [
+          'google.com',
+          'www.google.com',
+          'm.google.com',
+          'accounts.google.com',
+          'support.google.com',
+          'policies.google.com',
+          'webcache.googleusercontent.com',
+          'duckduckgo.com',
+          'www.duckduckgo.com',
+          'bing.com',
+          'www.bing.com',
+        ];
+        return !blockedHosts.includes(host);
+      } catch {
+        return false;
+      }
+    };
+
+    for (const match of hrefMatches) {
+      if (links.length >= maxCount) break;
+      const normalized = normalizeCandidateUrl(String(match[1] || ''));
+      if (!normalized) continue;
+      if (!isExternalResult(normalized)) continue;
+
+      try {
+        const urlObj = new URL(normalized);
+        const dedupeKey = `${urlObj.hostname}${urlObj.pathname}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        links.push(normalized);
+      } catch {
+        continue;
+      }
+    }
+
+    return links.slice(0, maxCount);
+  };
+
+  const findSiteMatchesFromTopResults = (results: string[], query: string) => {
+    const matchBySite: Record<'amazon' | 'bestbuy' | 'bh', string | null> = {
+      amazon: null,
+      bestbuy: null,
+      bh: null,
+    };
+
+    const productPatterns: Record<'amazon' | 'bestbuy' | 'bh', RegExp> = {
+      amazon: /\/dp\/|\/gp\/product\//i,
+      bestbuy: /\/site\/.+\/\d+\.p/i,
+      bh: /\/c\/product\//i,
+    };
+
+    const scoreUrlForSite = (site: 'amazon' | 'bestbuy' | 'bh', url: string) => {
+      let score = 0;
+      if (url.includes(query)) score += 3;
+      if (productPatterns[site].test(url)) score += 2;
+      return score;
+    };
+
+    const chooseBest = (site: 'amazon' | 'bestbuy' | 'bh', urls: string[]) => {
+      if (!urls.length) return null;
+      const ranked = urls
+        .map(url => ({ url, score: scoreUrlForSite(site, url) }))
+        .sort((a, b) => b.score - a.score);
+      return ranked[0].url;
+    };
+
+    const amazonCandidates = results.filter(link => /(^|\.)amazon\.com\//i.test(link));
+    const bestBuyCandidates = results.filter(link => /(^|\.)bestbuy\.com\//i.test(link));
+    const bhCandidates = results.filter(link => /(^|\.)bhphotovideo\.com\//i.test(link));
+
+    matchBySite.amazon = chooseBest('amazon', amazonCandidates);
+    matchBySite.bestbuy = chooseBest('bestbuy', bestBuyCandidates);
+    matchBySite.bh = chooseBest('bh', bhCandidates);
+
+    return matchBySite;
+  };
+
+  const fetchHtmlWithFallback = async (targetUrl: string) => {
+    const headers = {
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+      'Referer': 'https://www.google.com/',
+    };
+
+    try {
+      const response = await fetch(targetUrl, { method: 'GET', headers });
+      const html = await response.text();
+      return { html, source: 'direct', status: response.status };
+    } catch (directError) {
+      logPriceMatch('Direct fetch failed, trying fallback proxy', targetUrl, directError);
+      const fallbackUrl = `https://r.jina.ai/http://${targetUrl.replace(/^https?:\/\//i, '')}`;
+      const response = await fetch(fallbackUrl, { method: 'GET', headers });
+      const html = await response.text();
+      return { html, source: 'fallback', status: response.status };
+    }
+  };
+
+  const fetchInternetTopResults = async (query: string) => {
+    const searchSources = [
+      `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10&hl=en&gl=us`,
+      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+    ];
+
+    for (const searchUrl of searchSources) {
+      try {
+        const response = await fetch(searchUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+          },
+        });
+        const html = await response.text();
+        const results = extractTopSearchResults(html, 10);
+        logPriceMatch('Search source results', searchUrl, results.slice(0, 10));
+        if (results.length > 0) {
+          return results;
+        }
+      } catch (error) {
+        console.log('[price-match] Search source failed:', searchUrl, error);
+      }
+    }
+
+    return [];
+  };
+
+  const fetchPriceMatchSite = async (site: 'amazon' | 'bestbuy' | 'bh', targetUrl: string, query: string) => {
+    setPriceMatchResults(prev => ({
+      ...prev,
+      [site]: { ...prev[site], loading: true },
+    }));
+
+    try {
+      logPriceMatch(`Fetching ${site}`, targetUrl);
+      const { html, source, status } = await fetchHtmlWithFallback(targetUrl);
+      logPriceMatch(`Fetched ${site}`, { source, status, htmlLength: html?.length || 0 });
+
+      const parsed = site === 'amazon'
+        ? parseAmazonData(html)
+        : site === 'bestbuy'
+          ? parseBestBuyData(html)
+          : parseBhData(html);
+
+      const normalizedHtml = (html || '').replace(/\D/g, '');
+      const normalizedQuery = String(query || '').replace(/\D/g, '');
+      const containsUpc = normalizedQuery.length > 0 && normalizedHtml.includes(normalizedQuery);
+
+      const selectedArea = getSelectedStoreAreaName();
+      const amazonEligible = site !== 'amazon' || isAmazonSellerCompliant(parsed.seller);
+      const bestBuyEligible = site !== 'bestbuy' || isBestBuyAreaCompliant(html, selectedArea, parsed.stockStatus);
+      const upcEligible = containsUpc;
+      const eligible = amazonEligible && bestBuyEligible && upcEligible;
+      const note = site === 'amazon' && !amazonEligible
+        ? 'Requires seller/shipper: Amazon.com'
+        : site === 'bestbuy' && !bestBuyEligible
+          ? `Requires in-stock pickup in ${selectedArea || 'selected store'} area`
+          : !upcEligible
+            ? 'Listing does not appear to match UPC'
+          : null;
+
+      logPriceMatch(`Parsed ${site}`, {
+        targetUrl,
+        matchedUpc: containsUpc,
+        parsed,
+        eligible,
+        note,
+      });
+
+      setPriceMatchResults(prev => ({
+        ...prev,
+        [site]: {
+          loading: false,
+          price: parsed.price,
+          stockStatus: parsed.stockStatus,
+          seller: parsed.seller,
+          eligible,
+          note,
+          matchedUrl: targetUrl,
+        },
+      }));
+    } catch (error) {
+      logPriceMatch(`Failed to fetch ${site}:`, error);
+      setPriceMatchResults(prev => ({
+        ...prev,
+        [site]: {
+          ...prev[site],
+          loading: false,
+          price: null,
+          stockStatus: null,
+          seller: null,
+          eligible: false,
+          note: 'Unable to verify requirements',
+          matchedUrl: targetUrl,
+        },
+      }));
+    }
+  };
+
+  const loadPriceMatchData = async (query: string) => {
+    if (!query) return;
+
+    logPriceMatch('Starting loadPriceMatchData', { query });
+
+    setPriceMatchResults({
+      amazon: { loading: true, price: null, stockStatus: null, seller: null, eligible: true, note: null, matchedUrl: null },
+      bestbuy: { loading: true, price: null, stockStatus: null, seller: null, eligible: true, note: null, matchedUrl: null },
+      bh: { loading: true, price: null, stockStatus: null, seller: null, eligible: true, note: null, matchedUrl: null },
+    });
+
+    try {
+      const topResults = await fetchInternetTopResults(query);
+      logPriceMatch('Top search results (first 10)', topResults);
+      const matches = findSiteMatchesFromTopResults(topResults, query);
+      logPriceMatch('Domain matches from first 10 results', matches);
+      const sites: Array<'amazon' | 'bestbuy' | 'bh'> = ['amazon', 'bestbuy', 'bh'];
+
+      for (const site of sites) {
+        const matchedUrl = matches[site];
+        if (!matchedUrl) {
+          setPriceMatchResults(prev => ({
+            ...prev,
+            [site]: {
+              ...prev[site],
+              loading: false,
+              eligible: false,
+              note: 'Domain not found in first 10 web results',
+              matchedUrl: null,
+            },
+          }));
+        }
+      }
+
+      await Promise.all([
+        matches.amazon ? fetchPriceMatchSite('amazon', matches.amazon, query) : Promise.resolve(),
+        matches.bestbuy ? fetchPriceMatchSite('bestbuy', matches.bestbuy, query) : Promise.resolve(),
+        matches.bh ? fetchPriceMatchSite('bh', matches.bh, query) : Promise.resolve(),
+      ]);
+    } catch (error) {
+      logPriceMatch('Failed top-result search:', error);
+      setPriceMatchResults({
+        amazon: { loading: false, price: null, stockStatus: null, seller: null, eligible: false, note: 'Search failed', matchedUrl: null },
+        bestbuy: { loading: false, price: null, stockStatus: null, seller: null, eligible: false, note: 'Search failed', matchedUrl: null },
+        bh: { loading: false, price: null, stockStatus: null, seller: null, eligible: false, note: 'Search failed', matchedUrl: null },
+      });
+    }
+  };
+
+  const openPriceMatchSearch = (destination: 'amazon' | 'bestbuy' | 'bh' | 'manual') => {
+    const query = getPriceMatchQuery();
+
+    if (!query) return;
+
+    const searchUrls = {
+      amazon: `https://www.amazon.com/s?k=${encodeURIComponent(query)}`,
+      bestbuy: `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(query)}`,
+      bh: `https://www.bhphotovideo.com/c/search?q=${encodeURIComponent(query)}`,
+      manual: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+    };
+
+    const matchedUrl = destination === 'manual' ? null : priceMatchResults[destination].matchedUrl;
+    if (destination !== 'manual' && !matchedUrl) return;
+
+    const searchUrl = destination === 'manual' ? searchUrls.manual : matchedUrl;
+    if (!searchUrl) return;
+    setShowPriceMatchModal(false);
     Linking.openURL(searchUrl);
   };
 
@@ -978,14 +1396,14 @@ export default function ScanScreen() {
           >
             <Text style={[styles.appTitle, { color: theme.text }]}>{homeTitle}</Text>
           </TouchableOpacity>
-          {plansEnabled && (
-            <TouchableOpacity
-              style={styles.plansIconBtn}
-              onPress={() => setPlansModalVisible(true)}
-            >
-              <Ionicons name="reader-outline" size={28} color={colors.tint} />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={[styles.plansButton, { borderColor: theme.text }]}
+            onPress={() => setPlansModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="reader-outline" size={16} color={theme.text} />
+            <Text style={[styles.plansButtonText, { color: theme.text }]}>Plans</Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.searchWrapper}>
           <View style={styles.searchBox}>
@@ -1189,40 +1607,36 @@ export default function ScanScreen() {
               <View style={styles.reviewsLeft}>
                 {data.reviews && data.reviews.rating > 0 && (
                   <>
-                    <Text selectable style={[styles.reviewStars, { color: '#FFB800' }]}> 
-                      {'★'.repeat(Math.round(data.reviews.rating))}{'☆'.repeat(5 - Math.round(data.reviews.rating))}
-                    </Text>
+                    {renderRatingStars(data.reviews.rating)}
                     <Text selectable style={[styles.reviewText, { color: theme.text }]}> 
                       {data.reviews.rating.toFixed(1)}
                     </Text>
                   </>
                 )}
               </View>
-              <View style={styles.reviewsActions}>
-                {storeId === '071' && (
-                  <TouchableOpacity
-                    style={styles.storeDatCodeButton}
-                    activeOpacity={0.85}
-                    onPress={() => {
-                      const codes = store071MergedCodes.length > 0
-                        ? store071MergedCodes
-                        : (store071MergedCode ? [store071MergedCode] : []);
-                      openStoreMapForCodes(codes);
-                    }}
-                  >
-                    <Text style={styles.storeDatCodeButtonText}>Find Item</Text>
-                  </TouchableOpacity>
-                )}
-                {data.upc && (
-                  <TouchableOpacity
-                    style={styles.priceMatchButton}
-                    activeOpacity={0.85}
-                    onPress={handlePriceMatchPress}
-                  >
-                    <Text style={styles.priceMatchButtonText}>Price Match</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+              {data.upc && (
+                <TouchableOpacity
+                  style={[styles.priceMatchButton, storeId === '071' && styles.compactActionButton]}
+                  activeOpacity={0.85}
+                  onPress={handlePriceMatchPress}
+                >
+                  <Text style={[styles.priceMatchButtonText, storeId === '071' && styles.compactActionButtonText]}>Price Match</Text>
+                </TouchableOpacity>
+              )}
+              {storeId === '071' && (
+                <TouchableOpacity
+                  style={[styles.storeDatCodeButton, data.upc && styles.compactActionButton]}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    const codes = store071MergedCodes.length > 0
+                      ? store071MergedCodes
+                      : (store071MergedCode ? [store071MergedCode] : []);
+                    openStoreMapForCodes(codes);
+                  }}
+                >
+                  <Text style={[styles.storeDatCodeButtonText, data.upc && styles.compactActionButtonText]}>Find Item</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
@@ -1401,6 +1815,109 @@ export default function ScanScreen() {
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      <Modal
+        visible={showPriceMatchModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPriceMatchModal(false)}
+      >
+        <View style={styles.priceMatchOverlay}>
+          <View style={[styles.priceMatchCard, { backgroundColor: theme.card, borderColor: theme.border }] }>
+            <Text style={[styles.priceMatchHeading, { color: theme.text }]}>Price Match Search</Text>
+            <Text style={[styles.priceMatchSubheading, { color: theme.text }]}>Choose where to search this UPC.</Text>
+
+            <TouchableOpacity
+              style={[styles.priceMatchOptionBtn, !priceMatchResults.amazon.loading && !priceMatchResults.amazon.eligible && styles.priceMatchOptionBtnDisabled]}
+              onPress={() => openPriceMatchSearch('amazon')}
+              disabled={!priceMatchResults.amazon.loading && !priceMatchResults.amazon.eligible}
+            >
+              <Text style={styles.priceMatchOptionBtnTitle}>Amazon USA</Text>
+              <Text style={styles.priceMatchOptionBtnMeta}>Price: {priceMatchResults.amazon.loading ? 'Loading...' : (priceMatchResults.amazon.price || 'N/A')}</Text>
+              <Text style={styles.priceMatchOptionBtnMeta}>Stock: {priceMatchResults.amazon.loading ? 'Loading...' : (priceMatchResults.amazon.stockStatus || 'N/A')}</Text>
+              <Text style={styles.priceMatchOptionBtnMeta}>Seller/Shipper: {priceMatchResults.amazon.loading ? 'Loading...' : (priceMatchResults.amazon.seller || 'N/A')}</Text>
+              {!priceMatchResults.amazon.loading && priceMatchResults.amazon.note ? (
+                <Text style={styles.priceMatchOptionBtnWarning}>{priceMatchResults.amazon.note}</Text>
+              ) : null}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.priceMatchOptionBtn, !priceMatchResults.bestbuy.loading && !priceMatchResults.bestbuy.eligible && styles.priceMatchOptionBtnDisabled]}
+              onPress={() => openPriceMatchSearch('bestbuy')}
+              disabled={!priceMatchResults.bestbuy.loading && !priceMatchResults.bestbuy.eligible}
+            >
+              <Text style={styles.priceMatchOptionBtnTitle}>Best Buy USA</Text>
+              <Text style={styles.priceMatchOptionBtnMeta}>Price: {priceMatchResults.bestbuy.loading ? 'Loading...' : (priceMatchResults.bestbuy.price || 'N/A')}</Text>
+              <Text style={styles.priceMatchOptionBtnMeta}>Stock: {priceMatchResults.bestbuy.loading ? 'Loading...' : (priceMatchResults.bestbuy.stockStatus || 'N/A')}</Text>
+              <Text style={styles.priceMatchOptionBtnMeta}>Seller/Shipper: {priceMatchResults.bestbuy.loading ? 'Loading...' : (priceMatchResults.bestbuy.seller || 'N/A')}</Text>
+              {!priceMatchResults.bestbuy.loading && priceMatchResults.bestbuy.note ? (
+                <Text style={styles.priceMatchOptionBtnWarning}>{priceMatchResults.bestbuy.note}</Text>
+              ) : null}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.priceMatchOptionBtn, !priceMatchResults.bh.loading && !priceMatchResults.bh.eligible && styles.priceMatchOptionBtnDisabled]}
+              onPress={() => openPriceMatchSearch('bh')}
+              disabled={!priceMatchResults.bh.loading && !priceMatchResults.bh.eligible}
+            >
+              <Text style={styles.priceMatchOptionBtnTitle}>B&H Photo Video USA</Text>
+              <Text style={styles.priceMatchOptionBtnMeta}>Price: {priceMatchResults.bh.loading ? 'Loading...' : (priceMatchResults.bh.price || 'N/A')}</Text>
+              <Text style={styles.priceMatchOptionBtnMeta}>Stock: {priceMatchResults.bh.loading ? 'Loading...' : (priceMatchResults.bh.stockStatus || 'N/A')}</Text>
+              <Text style={styles.priceMatchOptionBtnMeta}>Seller/Shipper: {priceMatchResults.bh.loading ? 'Loading...' : (priceMatchResults.bh.seller || 'N/A')}</Text>
+              {!priceMatchResults.bh.loading && priceMatchResults.bh.note ? (
+                <Text style={styles.priceMatchOptionBtnWarning}>{priceMatchResults.bh.note}</Text>
+              ) : null}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.priceMatchOptionBtn}
+              onPress={() => openPriceMatchSearch('manual')}
+            >
+              <Text style={styles.priceMatchOptionBtnTitle}>Manual Search</Text>
+              <Text style={styles.priceMatchOptionBtnMeta}>Open browser with UPC-only search</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.priceMatchCancelBtn}
+              onPress={() => setShowPriceMatchModal(false)}
+            >
+              <Text style={styles.priceMatchCancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showPriceMatchWebModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPriceMatchWebModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowPriceMatchWebModal(false)}>
+          <View style={styles.priceMatchWebOverlay}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={[styles.priceMatchWebCard, { backgroundColor: theme.card, borderColor: theme.border }] }>
+                <View style={styles.priceMatchWebHeader}>
+                  <Text style={[styles.priceMatchWebTitle, { color: theme.text }]}>Price Match Search</Text>
+                  <TouchableOpacity
+                    style={styles.priceMatchWebCloseBtn}
+                    onPress={() => setShowPriceMatchWebModal(false)}
+                  >
+                    <Ionicons name="close" size={22} color={theme.text} />
+                  </TouchableOpacity>
+                </View>
+                <View style={[styles.priceMatchWebBody, { borderColor: theme.border }] }>
+                  <WebView
+                    source={{ uri: priceMatchWebUrl || 'about:blank' }}
+                    style={styles.priceMatchWebView}
+                    startInLoadingState
+                  />
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       {/* Full Screen Image Modal */}
@@ -1583,16 +2100,39 @@ const styles = StyleSheet.create({
   openBoxText: { fontSize: 14, fontWeight: '700', color: '#FFD700', marginTop: -6, marginBottom: 8 },
   infoText: { fontSize: 14, marginBottom: 5 },
   reviewsContainer: { marginVertical: 10 },
-  reviewsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  reviewsLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-  reviewsActions: { alignItems: 'flex-end', gap: 6 },
-  reviewStars: { fontSize: 18 },
+  reviewsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+  reviewsLeft: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 },
+  ratingStarsRow: { flexDirection: 'row', alignItems: 'center' },
+  ratingStarWrap: { position: 'relative', width: 17, height: 20, marginRight: 1 },
+  ratingStarBase: { position: 'absolute', left: 0, top: 0, fontSize: 18, color: '#5A5A5A' },
+  ratingStarFillWrap: { position: 'absolute', left: 0, top: 0, overflow: 'hidden', height: 20 },
+  ratingStarFill: { fontSize: 18, color: '#FFB800' },
   reviewText: { fontSize: 14, fontWeight: '500' },
   storeDatCodeButton: { backgroundColor: '#C00', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 7 },
   storeDatCodeButtonText: { color: 'white', fontSize: 13, fontWeight: '700' },
   productMetaBlock: { marginBottom: 5 },
   priceMatchButton: { backgroundColor: '#0173DF', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 7 },
   priceMatchButtonText: { color: 'white', fontSize: 13, fontWeight: '700' },
+  compactActionButton: { paddingHorizontal: 8, paddingVertical: 6, minWidth: 82, alignItems: 'center' },
+  compactActionButtonText: { fontSize: 12 },
+  priceMatchOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
+  priceMatchCard: { width: '100%', maxWidth: 360, borderRadius: 12, borderWidth: 1, padding: 16 },
+  priceMatchHeading: { fontSize: 18, fontWeight: '700', marginBottom: 6, textAlign: 'center' },
+  priceMatchSubheading: { fontSize: 13, opacity: 0.75, marginBottom: 14, textAlign: 'center' },
+  priceMatchOptionBtn: { backgroundColor: '#0173DF', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, alignItems: 'flex-start', marginBottom: 10 },
+  priceMatchOptionBtnDisabled: { backgroundColor: '#6f8fb7' },
+  priceMatchOptionBtnTitle: { color: 'white', fontWeight: '700', fontSize: 14, marginBottom: 2 },
+  priceMatchOptionBtnMeta: { color: 'white', fontSize: 12, fontWeight: '500' },
+  priceMatchOptionBtnWarning: { color: '#FFE7A6', fontSize: 11, fontWeight: '700', marginTop: 4 },
+  priceMatchCancelBtn: { borderRadius: 8, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: '#ccc', marginTop: 4 },
+  priceMatchCancelBtnText: { color: '#555', fontWeight: '700', fontSize: 14 },
+  priceMatchWebOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16 },
+  priceMatchWebCard: { width: '100%', maxWidth: 560, height: '76%', borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
+  priceMatchWebHeader: { paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#ddd' },
+  priceMatchWebTitle: { fontSize: 15, fontWeight: '700' },
+  priceMatchWebCloseBtn: { padding: 4 },
+  priceMatchWebBody: { flex: 1, borderTopWidth: 1 },
+  priceMatchWebView: { flex: 1 },
   servicesContainer: { marginVertical: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#ddd' },
   serviceText: { fontSize: 14, marginLeft: 10, marginBottom: 4 },
   specsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingVertical: 8 },
@@ -1613,7 +2153,8 @@ const styles = StyleSheet.create({
   mapNoticeBanner: { position: 'absolute', left: 16, right: 16, top: 122, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
   mapNoticeText: { color: 'white', fontSize: 13, fontWeight: '600', flex: 1, textAlign: 'center' },
   mapArrowButton: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.18)' },
-  plansIconBtn: { padding: 6 },
+  plansButton: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, gap: 6 },
+  plansButtonText: { fontSize: 14, fontWeight: '700' },
   titleEditOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
   titleEditCard: { width: '100%', maxWidth: 360, borderRadius: 12, borderWidth: 1, padding: 16 },
   titleEditHeading: { fontSize: 17, fontWeight: '700', marginBottom: 12 },
