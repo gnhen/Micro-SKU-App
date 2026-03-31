@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.microscraper.app",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "supportsTablet": true,
       "deploymentTarget": "13.4",
       "infoPlist": {
@@ -24,7 +24,7 @@
     },
     "android": {
       "package": "com.microscraper.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
