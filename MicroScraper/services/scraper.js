@@ -847,14 +847,16 @@ export const fetchTextSearch = async (query, storeId = '071') => {
 
       const brand = decodeHtml(brandAttr);
       const partial = decodeHtml(nameAttr);
-      // Combine brand + partial name, avoiding duplication (e.g. "Raspberry Pi" + "5" → "Raspberry Pi 5")
-      const name = brand && partial && !partial.toLowerCase().includes(brand.toLowerCase())
-        ? `${brand} ${partial}`
-        : (partial || brand);
+      const hasName = partial.length > 0;
+      const hasBrand = brand.length > 0;
+      // Combine brand + partial name only when the name tag is actually present.
+      const name = hasName
+        ? (hasBrand && !partial.toLowerCase().includes(brand.toLowerCase())
+          ? `${brand} ${partial}`
+          : partial)
+        : '?';
 
-      if (!name) continue;
-
-      const price = priceAttr ? `$${priceAttr}` : null;
+      const price = priceAttr ? `$${priceAttr}` : '?';
 
       // Thumbnail: first front image using productId + sku
       const imageUrl = productId && sku

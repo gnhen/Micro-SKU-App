@@ -913,14 +913,14 @@ export default function PCBuilderScreen() {
                   )}
                 </View>
                 <View style={styles.componentPriceContainer}>
-                  {item.price && (
+                  {item.price != null && (
                     <ThemedText style={styles.componentItemPrice}>
                       ${item.price.toFixed(2)}
                     </ThemedText>
                   )}
-                  {!item.price && (
+                  {item.price == null && (
                     <ThemedText style={[styles.componentItemPrice, { opacity: 0.5 }]}>
-                      See store
+                      ?
                     </ThemedText>
                   )}
                 </View>

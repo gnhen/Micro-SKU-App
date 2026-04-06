@@ -94,6 +94,11 @@ export function getExtractionScript(category) {
     
     productElements.forEach(element => {
       try {
+        const normalizeText = (value) => {
+          const text = String(value ?? '').trim();
+          return text.length > 0 ? text : '?';
+        };
+
         // Extract SKU - look for "SKU: XXXXXX" pattern in text first
         let sku = null;
         const skuText = element.textContent.match(/SKU[:\s#]+([0-9]{6})/i);
@@ -126,7 +131,7 @@ export function getExtractionScript(category) {
           if (brandElement) {
             const brandValue = brandElement.getAttribute('data-brand');
             if (brandValue && brandValue.trim()) {
-              brand = brandValue.trim();
+              brand = normalizeText(brandValue);
               break;
             }
           }
@@ -148,7 +153,7 @@ export function getExtractionScript(category) {
           if (nameElement) {
             const fullName = nameElement.getAttribute('data-name') || nameElement.textContent?.trim();
             if (fullName) {
-              name = fullName;
+              name = normalizeText(fullName);
               // Extract brand from the name if not already found
               if (!brand) {
                 const brandMatch = fullName.match(/^(AMD|Intel|NVIDIA|MSI|ASUS|Gigabyte|ASRock|Corsair|G\.Skill|Samsung|Western Digital|Seagate|EVGA|Cooler Master|NZXT|Thermaltake|be quiet!|Fractal Design|Lian Li|Seasonic|Crucial|Kingston)\s+/i);
@@ -204,13 +209,11 @@ export function getExtractionScript(category) {
         }
         
         // Only add if we have at least SKU and name, and SKU/name is not 'Banner'
-        if (sku && name && name.length > 3 && 
-            sku.toLowerCase() !== 'banner' && 
-            !name.toLowerCase().includes('banner')) {
+        if (sku && sku.toLowerCase() !== 'banner' && !String(name).toLowerCase().includes('banner')) {
           
           // Ensure brand is included in the name if not already present
           let displayName = name;
-          if (brand && !name.toLowerCase().includes(brand.toLowerCase())) {
+          if (displayName !== '?' && brand && !String(name).toLowerCase().includes(brand.toLowerCase())) {
             displayName = brand + ' ' + name;
             console.log('Prepending brand to name:', brand, '+', name, '=', displayName);
           } else {
@@ -220,7 +223,7 @@ export function getExtractionScript(category) {
           products.push({
             sku,
             name: displayName,
-            brand,
+            brand: brand || '?',
             price,
             image,
             url,

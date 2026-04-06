@@ -104,6 +104,10 @@ export const fetchComponentsByCategory = async (categoryName, storeId = '071') =
  */
 const parseComponentsFromHTML = (html, categoryName) => {
   const components = [];
+  const toDisplayText = (value) => {
+    const text = decodeHTML(value);
+    return text && text.trim() ? text.trim() : '?';
+  };
   
   try {
     // Extract product list items - Microcenter uses data-id for SKU
@@ -117,7 +121,7 @@ const parseComponentsFromHTML = (html, categoryName) => {
       try {
         // Extract product name
         const nameMatch = productHtml.match(/data-name="([^"]+)"/);
-        const name = nameMatch ? decodeHTML(nameMatch[1]) : null;
+        const name = nameMatch ? toDisplayText(nameMatch[1]) : '?';
         
         // Extract price (data-price is in dollars)
         const priceMatch = productHtml.match(/data-price="([0-9.]+)"/);
@@ -125,7 +129,7 @@ const parseComponentsFromHTML = (html, categoryName) => {
         
         // Extract brand
         const brandMatch = productHtml.match(/data-brand="([^"]+)"/);
-        const brand = brandMatch ? decodeHTML(brandMatch[1]) : null;
+        const brand = brandMatch ? toDisplayText(brandMatch[1]) : '?';
         
         // Extract sale price if available
         const salePriceMatch = productHtml.match(/class="price[^"]*"[^>]*>\s*\$([0-9,]+\.\d{2})/);
@@ -143,7 +147,7 @@ const parseComponentsFromHTML = (html, categoryName) => {
           imageUrl = `https://www.microcenter.com/product/images/${sku}_tn.jpg`;
         }
         
-        if (sku && name && price !== null) {
+        if (sku && price !== null) {
           components.push({
             id: parseInt(sku),
             sku: sku,
@@ -175,14 +179,14 @@ const parseComponentsFromHTML = (html, categoryName) => {
         const nameMatch = linkHtml.match(/<h2[^>]*>([^<]+)<\/h2>/);
         const priceMatch = html.match(new RegExp(`data-id="${sku}"[^>]*data-price="([0-9.]+)"`));
         
-        if (nameMatch && priceMatch) {
+        if (priceMatch) {
           components.push({
             id: parseInt(sku),
             sku: sku,
-            name: decodeHTML(nameMatch[1].trim()),
+            name: nameMatch ? toDisplayText(nameMatch[1]) : '?',
             category_id: getCategoryId(categoryName),
             category_name: categoryName,
-            brand: null,
+            brand: '?',
             price: parseFloat(priceMatch[1]),
             sale_price: null,
             image_url: `https://www.microcenter.com/product/images/${sku}_tn.jpg`,
