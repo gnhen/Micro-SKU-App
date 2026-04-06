@@ -1196,11 +1196,9 @@ export default function ScanScreen() {
 
           <Text selectable style={[styles.productTitle, { color: theme.text }]}>{data.name}</Text>
           {(() => {
-            const savingRaw = String((data as any).memberSaving ?? '').trim();
-            if (!savingRaw) return null;
+            const savingAmount = Number((data as any).memberSavingAmount);
+            if (!Number.isFinite(savingAmount) || savingAmount <= 0) return null;
 
-            const savingMatch = savingRaw.match(/([0-9]+(?:\.[0-9]{1,2})?)/);
-            const savingAmount = savingMatch ? parseFloat(savingMatch[1]) : NaN;
             const priceMatch = String(data.price ?? '').match(/([0-9]+(?:\.[0-9]{1,2})?)/);
             const currentPrice = priceMatch ? parseFloat(priceMatch[1]) : NaN;
             if (!Number.isFinite(savingAmount) || !Number.isFinite(currentPrice)) return null;

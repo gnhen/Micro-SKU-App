@@ -245,13 +245,35 @@ const extractOpenBoxText = (html) => {
 };
 
 const extractMemberSaving = (html) => {
-  const match = html.match(/data-membersaving\s*=\s*['"]([^'"]+)['"]/i);
-  if (!match || !match[1]) return null;
+  const cleanText = decodeHtml(
+    String(html || '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
 
-  const rawValue = decodeHtml(match[1]).replace(/[^0-9.]/g, '');
-  if (!rawValue) return null;
+  const patterns = [
+    /data-membersaving\s*=\s*['"]([^'"]+)['"]/i,
+    /Save\s+an\s+extra\s+\$([0-9,]+(?:\.[0-9]{1,2})?)\s+with\s+Member\s+Pricing/i,
+    /Members?\s+Save\s+\$([0-9,]+(?:\.[0-9]{1,2})?)/i,
+  ];
 
-  const amount = parseFloat(rawValue);
+  let amount = null;
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern) || cleanText.match(pattern);
+    if (!match || !match[1]) continue;
+
+    const rawValue = decodeHtml(match[1]).replace(/[^0-9.]/g, '');
+    if (!rawValue) continue;
+
+    const parsed = parseFloat(rawValue);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      amount = parsed;
+      break;
+    }
+  }
+
   if (!Number.isFinite(amount)) return null;
 
   return {
@@ -614,8 +636,31 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
       return { error: "noResults", searchedSku: originalSku };
     }
 
+    const topSectionEndMarkers = [
+      'Frequently Bought Together',
+      'Customers who viewed this also viewed',
+      'id="tab-overview"',
+      'id="tab-reviews"',
+      'id="tab-questions"',
+    ];
+
+    let topSectionEnd = -1;
+    for (const marker of topSectionEndMarkers) {
+      const idx = productHtml.indexOf(marker);
+      if (idx > -1 && (topSectionEnd === -1 || idx < topSectionEnd)) {
+        topSectionEnd = idx;
+      }
+    }
+
+    const skuAnchorIndex = productHtml.indexOf('SKU:');
+    const mainProductHtml = topSectionEnd > 0
+      ? productHtml.substring(0, topSectionEnd)
+      : (skuAnchorIndex > -1
+        ? productHtml.substring(Math.max(0, skuAnchorIndex - 2500), Math.min(productHtml.length, skuAnchorIndex + 12000))
+        : productHtml.substring(0, 22000));
+
     let productBrand = "";
-    const brandMatch = productHtml.match(/data-brand=['"]([^'"]+)['"]/i) ||
+    const brandMatch = mainProductHtml.match(/data-brand=['"]([^'"]+)['"]/i) ||
                        productHtml.match(/<span[^>]*class=['"][^'"]*brand[^'"]*['"][^>]*>([^<]+)<\/span>/i);
     if (brandMatch && brandMatch[1]) {
       const rawBrand = decodeHtml(brandMatch[1]);
@@ -653,8 +698,8 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
     }
     
     const priceMatch = productHtml.match(/<span[^>]*id=['"]pricing['"][^>]*content="([0-9,]+\.?[0-9]*)"/i) ||
-                       productHtml.match(/<span[^>]*id=['"]pricing['"][^>]*>\$?([0-9,]+\.?[0-9]*)<\/span>/i) ||
-                       productHtml.match(/data-price=['"]([^'"]+)['"]/i);
+           productHtml.match(/<span[^>]*id=['"]pricing['"][^>]*>\$?([0-9,]+\.?[0-9]*)<\/span>/i) ||
+           productHtml.match(/data-price=['"]([^'"]+)['"]/i);
     if (priceMatch && priceMatch[1]) {
       const priceNum = priceMatch[1].replace(/,/g, '');
       price = `$${priceNum}`;
@@ -701,7 +746,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
     
     const stockInfo = extractStock(productHtml, storeId);
     const openBoxText = extractOpenBoxText(productHtml);
-    const memberSaving = extractMemberSaving(productHtml);
+    const memberSaving = extractMemberSaving(mainProductHtml);
     
     const location = extractLocation(productHtml);
 
