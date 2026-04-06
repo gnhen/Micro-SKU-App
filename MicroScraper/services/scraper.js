@@ -244,6 +244,22 @@ const extractOpenBoxText = (html) => {
   return `${count} Open Box: ${fromPriceText}`;
 };
 
+const extractMemberSaving = (html) => {
+  const match = html.match(/data-membersaving\s*=\s*['"]([^'"]+)['"]/i);
+  if (!match || !match[1]) return null;
+
+  const rawValue = decodeHtml(match[1]).replace(/[^0-9.]/g, '');
+  if (!rawValue) return null;
+
+  const amount = parseFloat(rawValue);
+  if (!Number.isFinite(amount)) return null;
+
+  return {
+    amount,
+    text: `$${amount.toFixed(2)}`,
+  };
+};
+
 const extractSpecsFromFeatures = (html) => {
   const specs = [];
   
@@ -685,6 +701,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
     
     const stockInfo = extractStock(productHtml, storeId);
     const openBoxText = extractOpenBoxText(productHtml);
+    const memberSaving = extractMemberSaving(productHtml);
     
     const location = extractLocation(productHtml);
 
@@ -760,6 +777,8 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
       stock: stockInfo.stock,
       inStock: stockInfo.inStock,
       openBoxText,
+      memberSaving: memberSaving?.text || null,
+      memberSavingAmount: memberSaving?.amount ?? null,
       location,
       imageUrl,
       imageUrls,

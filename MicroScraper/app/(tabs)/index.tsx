@@ -1195,6 +1195,23 @@ export default function ScanScreen() {
           })()}
 
           <Text selectable style={[styles.productTitle, { color: theme.text }]}>{data.name}</Text>
+          {(() => {
+            const savingRaw = String((data as any).memberSaving ?? '').trim();
+            if (!savingRaw) return null;
+
+            const savingMatch = savingRaw.match(/([0-9]+(?:\.[0-9]{1,2})?)/);
+            const savingAmount = savingMatch ? parseFloat(savingMatch[1]) : NaN;
+            const priceMatch = String(data.price ?? '').match(/([0-9]+(?:\.[0-9]{1,2})?)/);
+            const currentPrice = priceMatch ? parseFloat(priceMatch[1]) : NaN;
+            if (!Number.isFinite(savingAmount) || !Number.isFinite(currentPrice)) return null;
+
+            const newPrice = Math.max(0, currentPrice - savingAmount);
+            return (
+              <Text selectable style={styles.memberSavingText}>
+                Members Save ${savingAmount.toFixed(2)}! New Price: ${newPrice.toFixed(2)}
+              </Text>
+            );
+          })()}
           {data.openBoxText ? (
             <Text selectable style={styles.openBoxText}>{data.openBoxText}</Text>
           ) : null}
@@ -1583,6 +1600,7 @@ const styles = StyleSheet.create({
   price: { fontSize: 28, fontWeight: 'bold', color: '#C00' },
   stockText: { fontSize: 14, fontWeight: '600' },
   productTitle: { fontSize: 18, marginVertical: 10, fontWeight: '600' },
+  memberSavingText: { fontSize: 14, fontWeight: '700', color: '#00AA00', marginTop: -2, marginBottom: 8 },
   openBoxText: { fontSize: 14, fontWeight: '700', color: '#FFD700', marginTop: -6, marginBottom: 8 },
   infoText: { fontSize: 14, marginBottom: 5 },
   reviewsContainer: { marginVertical: 10 },
