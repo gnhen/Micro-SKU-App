@@ -513,7 +513,11 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
                 const linkIndex = relevantHtml.indexOf(linkMatch[0]);
                 const cardContext = relevantHtml.substring(Math.max(0, linkIndex - 300), linkIndex + 800);
                 if (expectedSearchSku.length <= 10 && !cardContext.includes(expectedSearchSku)) {
-                  console.log(`[fetchProductBySku] Found product link but SKU ${expectedSearchSku} not in card context — treating as no results`);
+                  console.log(`[fetchProductBySku] Found product link but SKU ${expectedSearchSku} not in card context — returning list results`);
+                  const results = parseSearchResultsFromHtml(htmlText, storeId, 24);
+                  if (results.length > 0) {
+                    return { error: "noExactSkuMatch", searchedSku: expectedSearchSku || sku, results };
+                  }
                   return { error: "noResults", searchedSku: expectedSearchSku || sku };
                 }
 
@@ -524,6 +528,10 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
             } else {
                 const multiProductMatch = htmlText.match(/data-id=['"](\d+)['"][^>]*data-id=['"](\d+)['"]/i);
                 if (multiProductMatch) {
+                const results = parseSearchResultsFromHtml(htmlText, storeId, 24);
+                if (results.length > 0) {
+                  return { error: "noExactSkuMatch", searchedSku: expectedSearchSku || sku, results };
+                }
                 return { error: "noResults", searchedSku: expectedSearchSku || sku };
                 }
             }
@@ -847,6 +855,59 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
 
 // ── Text / keyword search ─────────────────────────────────────────────────────
 // Returns { results: [{sku, name, price, url}] } or { singleUrl } or { error }
+const parseSearchResultsFromHtml = (html, storeId, maxResults = 24) => {
+  const sortIdx = html.indexOf('Sort by:');
+  const relevantHtml = sortIdx > -1 ? html.substring(sortIdx) : html;
+
+  const skuAnchorRegex = /Add SKU:(\d+) to wishlist/g;
+  const results = [];
+  let m;
+
+  while ((m = skuAnchorRegex.exec(relevantHtml)) !== null && results.length < maxResults) {
+    const sku = m[1];
+    const cardSlice = relevantHtml.substring(m.index, m.index + 1800);
+
+    const aTagMatch = cardSlice.match(/<a[^>]*class="[^"]*productClickItemV2[^"]*"([^>]*)href="(\/product\/[^"?]+)/i);
+    if (!aTagMatch) continue;
+
+    const attrs = aTagMatch[1];
+    const href = aTagMatch[2];
+    const url = BASE_URL + href + `?storeid=${storeId}`;
+
+    const brandAttr = (attrs.match(/data-brand="([^"]*)"/i) || [])[1] || '';
+    const nameAttr = (attrs.match(/data-name="([^"]*)"/i) || [])[1] || '';
+    const priceAttr = (attrs.match(/data-price="([^"]*)"/i) || [])[1] || '';
+    const productId = (attrs.match(/data-id="([^"]*)"/i) || [])[1] || '';
+
+    const brand = decodeHtml(brandAttr);
+    const partial = decodeHtml(nameAttr);
+    const hasName = partial.length > 0;
+    const hasBrand = brand.length > 0;
+    const name = hasName
+      ? (hasBrand && !partial.toLowerCase().includes(brand.toLowerCase()) ? `${brand} ${partial}` : partial)
+      : '?';
+
+    const price = priceAttr ? `$${priceAttr}` : '?';
+
+    const imageUrl = productId && sku
+      ? `https://productimages.microcenter.com/${productId}_${sku}_01_front_zoom.jpg`
+      : null;
+
+    let stockText = null;
+    const invMatch = cardSlice.match(/class="inventoryCnt"[^>]*>(.*?)<\/span>\s*<span class="storeName"/is);
+    if (invMatch) {
+      stockText = invMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    } else {
+      const plainMatch = cardSlice.match(/(\d+\+?\s+(?:NEW\s+)?(?:OPEN\s+BOX\s+)?IN\s+STOCK)/i);
+      if (plainMatch) stockText = plainMatch[1].trim();
+    }
+
+    results.push({ sku, name, price, url, imageUrl, stockText });
+  }
+
+  return results;
+};
+
 export const fetchTextSearch = async (query, storeId = '071') => {
   try {
     const encoded = encodeURIComponent(query.trim());
@@ -881,66 +942,7 @@ export const fetchTextSearch = async (query, storeId = '071') => {
 
     const html = searchHtmlText ?? await response.text();
 
-    // Anchor results section after "Sort by:" so we skip nav/header links
-    const sortIdx = html.indexOf('Sort by:');
-    const relevantHtml = sortIdx > -1 ? html.substring(sortIdx) : html;
-
-    // Each product card is preceded by "Add SKU:XXXXXX to wishlist" anchor text
-    const skuAnchorRegex = /Add SKU:(\d+) to wishlist/g;
-    const results = [];
-    let m;
-
-    while ((m = skuAnchorRegex.exec(relevantHtml)) !== null && results.length < 24) {
-      const sku = m[1];
-      // Slice a window around this anchor — stock info often appears after the product link
-      const cardSlice = relevantHtml.substring(m.index, m.index + 1800);
-
-      // Product data lives on the <a class="...productClickItemV2..."> element
-      // e.g. data-brand="Raspberry Pi" data-name="5" data-price="204.99" data-id="702590" href="/product/702590/..."
-      const aTagMatch = cardSlice.match(/<a[^>]*class="[^"]*productClickItemV2[^"]*"([^>]*)href="(\/product\/[^"?]+)/i);
-      if (!aTagMatch) continue;
-
-      const attrs = aTagMatch[1];
-      const href = aTagMatch[2];
-      const url = BASE_URL + href + `?storeid=${storeId}`;
-
-      const brandAttr   = (attrs.match(/data-brand="([^"]*)"/i)  || [])[1] || '';
-      const nameAttr    = (attrs.match(/data-name="([^"]*)"/i)   || [])[1] || '';
-      const priceAttr   = (attrs.match(/data-price="([^"]*)"/i)  || [])[1] || '';
-      const productId   = (attrs.match(/data-id="([^"]*)"/i)     || [])[1] || '';
-
-      const brand = decodeHtml(brandAttr);
-      const partial = decodeHtml(nameAttr);
-      const hasName = partial.length > 0;
-      const hasBrand = brand.length > 0;
-      // Combine brand + partial name only when the name tag is actually present.
-      const name = hasName
-        ? (hasBrand && !partial.toLowerCase().includes(brand.toLowerCase())
-          ? `${brand} ${partial}`
-          : partial)
-        : '?';
-
-      const price = priceAttr ? `$${priceAttr}` : '?';
-
-      // Thumbnail: first front image using productId + sku
-      const imageUrl = productId && sku
-        ? `https://productimages.microcenter.com/${productId}_${sku}_01_front_zoom.jpg`
-        : null;
-
-      // Stock text: handles "8 IN STOCK", "2 NEW IN STOCK", "25+ IN STOCK", etc.
-      // First try inventoryCnt span (strips inner HTML tags), then fall back to plain text match.
-      let stockText = null;
-      const invMatch = cardSlice.match(/class="inventoryCnt"[^>]*>(.*?)<\/span>\s*<span class="storeName"/is);
-      if (invMatch) {
-        // Strip all inner HTML and collapse whitespace
-        stockText = invMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-      } else {
-        const plainMatch = cardSlice.match(/(\d+\+?\s+(?:NEW\s+)?(?:OPEN\s+BOX\s+)?IN\s+STOCK)/i);
-        if (plainMatch) stockText = plainMatch[1].trim();
-      }
-
-      results.push({ sku, name, price, url, imageUrl, stockText });
-    }
+    const results = parseSearchResultsFromHtml(html, storeId, 24);
 
     console.log(`[fetchTextSearch] Parsed ${results.length} results`);
     return { results };

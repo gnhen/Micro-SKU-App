@@ -816,6 +816,11 @@ export default function ScanScreen() {
               : 'Verification was canceled.';
         setError(canceledMessage);
         if (fromBarcodeScan) setScannerEnabled(true);
+      } else if (result.error === 'noExactSkuMatch' && Array.isArray(result.results) && result.results.length > 0) {
+        setTextSearchMode(true);
+        setTextResults(result.results);
+        setError(null);
+        if (fromBarcodeScan) setScannerEnabled(true);
       } else if (result.error === "noResults") {
         if (!noResultsAlertActive.current) {
           noResultsAlertActive.current = true;
