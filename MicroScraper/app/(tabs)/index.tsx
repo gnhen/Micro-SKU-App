@@ -92,7 +92,10 @@ export default function ScanScreen() {
   const [expandedSpecs, setExpandedSpecs] = useState(true);
   const [fullScreenImage, setFullScreenImage] = useState<string | number | null>(null);
   const [mapOverlayNotice, setMapOverlayNotice] = useState<string | null>(null);
-  const [validImageUrls, setValidImageUrls] = useState([]);
+  const [validImageUrls, setValidImageUrls] = useState<string[]>([]);
+  const [zoomImageUrls, setZoomImageUrls] = useState<string[]>([]);
+  const [compingFallbackTried, setCompingFallbackTried] = useState(false);
+  const [singleImageFallbackTried, setSingleImageFallbackTried] = useState(false);
   const [scannerEnabled, setScannerEnabled] = useState(true);
   const [addingToBuilder, setAddingToBuilder] = useState(false);
   const [detectedCategory, setDetectedCategory] = useState(null);
@@ -356,6 +359,47 @@ export default function ScanScreen() {
       setScannerEnabled(true);
     }
   }, [scanning]);
+
+  useEffect(() => {
+    if (!data) return;
+    if (validImageUrls.length > 0) return;
+    if (zoomImageUrls.length === 0) return;
+    if (!compingFallbackTried) {
+      const compingUrls = zoomImageUrls.map((url) =>
+        String(url).replace(/_zoom\.jpg(\?.*)?$/i, '_comping.jpg$1')
+      );
+
+      const hasReplacement = compingUrls.some((url, idx) => url !== zoomImageUrls[idx]);
+      setCompingFallbackTried(true);
+
+      if (hasReplacement) {
+        console.log('All zoom images failed, trying comping fallback URLs');
+        setValidImageUrls(compingUrls);
+      }
+      return;
+    }
+
+    if (singleImageFallbackTried) return;
+
+    const seedUrl = String(zoomImageUrls[0] || '');
+    const idSkuMatch = seedUrl.match(/\/(\d+)_(\d+)_/);
+    if (!idSkuMatch) {
+      setSingleImageFallbackTried(true);
+      return;
+    }
+
+    const productId = idSkuMatch[1];
+    const skuFromUrl = idSkuMatch[2];
+    const paddedProductId = productId.padStart(7, '0');
+    const singleImageCandidates = Array.from(new Set([
+      `https://productimages.microcenter.com/${paddedProductId}_${skuFromUrl}.jpg`,
+      `https://productimages.microcenter.com/${productId}_${skuFromUrl}.jpg`,
+    ]));
+
+    setSingleImageFallbackTried(true);
+    console.log('All comping images failed, trying single-image fallback URL');
+    setValidImageUrls(singleImageCandidates);
+  }, [data, validImageUrls, zoomImageUrls, compingFallbackTried, singleImageFallbackTried]);
 
   useEffect(() => {
     return () => {
@@ -677,6 +721,9 @@ export default function ScanScreen() {
     setData(finalData);
     setStore071MergedCode(lookupStore071MergedCode(String(finalData.sku ?? '')));
     setStore071MergedCodes(lookupStore071MergedCodes(String(finalData.sku ?? '')));
+    setZoomImageUrls(finalData.imageUrls || []);
+    setCompingFallbackTried(false);
+    setSingleImageFallbackTried(false);
     setValidImageUrls(finalData.imageUrls || []);
     addToHistory(finalData);
 
@@ -750,6 +797,11 @@ export default function ScanScreen() {
     setScanning(false);
     setData(null);
     setError(null);
+    setTextSearchMode(false);
+    setTextResults([]);
+    setZoomImageUrls([]);
+    setCompingFallbackTried(false);
+    setSingleImageFallbackTried(false);
     setStore071MergedCode(null);
     setStore071MergedCodes([]);
     
@@ -888,6 +940,9 @@ export default function ScanScreen() {
        setData(finalData);
        setStore071MergedCode(lookupStore071MergedCode(String(finalData.sku ?? '')));
        setStore071MergedCodes(lookupStore071MergedCodes(String(finalData.sku ?? '')));
+       setZoomImageUrls(result.imageUrls || []);
+       setCompingFallbackTried(false);
+      setSingleImageFallbackTried(false);
        setValidImageUrls(result.imageUrls || []);
        addToHistory(finalData);
     } else {
@@ -895,6 +950,9 @@ export default function ScanScreen() {
       setData(finalData);
       setStore071MergedCode(lookupStore071MergedCode(String(finalData.sku ?? '')));
       setStore071MergedCodes(lookupStore071MergedCodes(String(finalData.sku ?? '')));
+      setZoomImageUrls(result.imageUrls || []);
+      setCompingFallbackTried(false);
+      setSingleImageFallbackTried(false);
       setValidImageUrls(result.imageUrls || []);
       addToHistory(finalData);
     }
@@ -1071,7 +1129,7 @@ export default function ScanScreen() {
         )}
 
         {/* Text search results list */}
-        {textResults.length > 0 && (
+        {textSearchMode && textResults.length > 0 && (
           <View style={styles.textResultsList}>
             <Text style={[styles.textResultsHeader, { color: theme.text }]}>
               {textResults.length} result{textResults.length !== 1 ? 's' : ''} — tap to view
