@@ -1076,7 +1076,13 @@ export default function ScanScreen() {
               placeholderTextColor="gray"
               keyboardType={textSearchMode ? 'default' : 'numeric'}
               returnKeyType={textSearchMode ? 'search' : 'done'}
-              onSubmitEditing={textSearchMode ? handleTextSearch : undefined}
+              onSubmitEditing={() => {
+                if (textSearchMode) {
+                  handleTextSearch();
+                } else {
+                  handleSearch(null);
+                }
+              }}
             />
           </View>
 
