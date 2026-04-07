@@ -45,6 +45,16 @@ const getRequestHeaders = () => ({
   'User-Agent': runtimeUserAgent || HEADERS['User-Agent'],
 });
 
+const getAjaxHeaders = (referer = `${BASE_URL}/`) => ({
+  'User-Agent': runtimeUserAgent || HEADERS['User-Agent'],
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+  'X-Requested-With': 'XMLHttpRequest',
+  'Origin': BASE_URL,
+  'Referer': referer,
+});
+
 const CHALLENGE_PATTERNS = [
   /just a moment/i,
   /enable javascript and cookies/i,
@@ -114,6 +124,45 @@ const extractReviews = (html) => {
 
   console.log('Extracted reviews:', { rating, reviewCount });
   return { rating, reviewCount };
+};
+
+const fetchProductDeck = async (productId, refererUrl, onStatus) => {
+  if (!productId) return null;
+
+  try {
+    await waitForRateLimit(onStatus);
+    const payload = new URLSearchParams({
+      type: 'text_product',
+      product_id: String(productId),
+    }).toString();
+
+    const response = await fetch(`${BASE_URL}/assets/ajax/getProductAttributes.aspx`, {
+      method: 'POST',
+      headers: getAjaxHeaders(refererUrl || `${BASE_URL}/`),
+      body: payload,
+    });
+
+    if (!response.ok) {
+      console.log(`[fetchProductDeck] Attributes request failed: ${response.status}`);
+      return null;
+    }
+
+    const text = await response.text();
+    let parsed = null;
+
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return null;
+    }
+
+    if (!parsed || typeof parsed !== 'object') return null;
+    const rawDeck = typeof parsed.deck === 'string' ? parsed.deck.trim() : '';
+    return rawDeck || null;
+  } catch (error) {
+    console.log('[fetchProductDeck] Unable to fetch deck:', error?.message || error);
+    return null;
+  }
 };
 
 const extractProInstallation = (html) => {
@@ -757,6 +806,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
     const memberSaving = extractMemberSaving(mainProductHtml);
     
     const location = extractLocation(productHtml);
+    const deck = await fetchProductDeck(productId, productUrl, onStatus);
 
     let displayName = productName || `Product ${sku}`;
     if (productBrand && !productName.toLowerCase().includes(productBrand.toLowerCase())) {
@@ -837,6 +887,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
       imageUrls,
       url: productUrl,
       productId,
+      deck,
       mfrPart,
       upc,
       reviews,

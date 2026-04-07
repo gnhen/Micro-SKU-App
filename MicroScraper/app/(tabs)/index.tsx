@@ -1326,6 +1326,13 @@ export default function ScanScreen() {
             {(((data as any)?.sku) || sku) && (
               <Text selectable style={[styles.infoText, { color: theme.text }]}>SKU: {((data as any)?.sku) || sku}</Text>
             )}
+            {(() => {
+              const rawDeck = (data as any)?.deck;
+              const normalizedDeck = typeof rawDeck === 'string' && rawDeck.trim().length > 0 ? rawDeck.trim() : 'N/A';
+              return (
+                <Text selectable style={[styles.infoText, { color: theme.text }]}>Deck: {normalizedDeck}</Text>
+              );
+            })()}
           </View>
 
           {/* Pro Installation Section */}
