@@ -707,6 +707,7 @@ export default function ScanScreen() {
       ...productData,
       sku: productData?.sku || fallbackSku,
       imageUrls: productData?.imageUrls || (productData?.imageUrl ? [productData.imageUrl] : []),
+      tieredPricing: Array.isArray(productData?.tieredPricing) ? productData.tieredPricing : [],
       reviews: productData?.reviews || { rating: 0, reviewCount: 0 },
       proInstallation: productData?.proInstallation || [],
       protectionPlans: productData?.protectionPlans || [],
@@ -1245,6 +1246,13 @@ export default function ScanScreen() {
               );
             })()}
           </View>
+          {Array.isArray((data as any)?.tieredPricing) && (data as any).tieredPricing.length > 0 ? (
+            <View style={styles.tieredPricingBlock}>
+              {(data as any).tieredPricing.map((tier: string, idx: number) => (
+                <Text key={`${tier}-${idx}`} selectable style={styles.tieredPricingText}>{tier}</Text>
+              ))}
+            </View>
+          ) : null}
 
           {/* UI Care Banner */}
           {(() => {
@@ -1264,6 +1272,9 @@ export default function ScanScreen() {
           })()}
 
           <Text selectable style={[styles.productTitle, { color: theme.text }]}>{data.name}</Text>
+          {(data as any)?.limitPerHousehold ? (
+            <Text selectable style={styles.limitPerHouseholdText}>{String((data as any).limitPerHousehold).toUpperCase()}</Text>
+          ) : null}
           {(() => {
             const savingAmount = Number((data as any).memberSavingAmount);
             if (!Number.isFinite(savingAmount) || savingAmount <= 0) return null;
@@ -1673,7 +1684,10 @@ const styles = StyleSheet.create({
   priceRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
   price: { fontSize: 28, fontWeight: 'bold', color: '#C00' },
   stockText: { fontSize: 14, fontWeight: '600' },
+  tieredPricingBlock: { marginTop: 6, marginBottom: 8 },
+  tieredPricingText: { fontSize: 13, color: '#7A7A7A', fontWeight: '600', marginBottom: 2 },
   productTitle: { fontSize: 18, marginVertical: 10, fontWeight: '600' },
+  limitPerHouseholdText: { fontSize: 13, color: '#8F8F8F', marginTop: -6, marginBottom: 8 },
   memberSavingText: { fontSize: 14, fontWeight: '700', color: '#00AA00', marginTop: -2, marginBottom: 8 },
   openBoxText: { fontSize: 14, fontWeight: '700', color: '#FFD700', marginTop: -6, marginBottom: 8 },
   infoText: { fontSize: 14, marginBottom: 5 },

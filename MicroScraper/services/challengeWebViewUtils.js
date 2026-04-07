@@ -180,6 +180,28 @@ export const buildProductExtractionScript = (searchedSku = '') => {
     var mfrPart = fromLabel('mfr part');
     var upc = fromLabel('upc');
     var brand = fromLabel('brand');
+    var limitPerHouseholdNode = document.querySelector('p.limitPerHouse');
+    var limitPerHousehold = textFromNode(limitPerHouseholdNode);
+    var tieredPricing = [];
+    var optionsPricingNode = document.querySelector('#options-pricing2022');
+    if (optionsPricingNode && optionsPricingNode.parentElement) {
+      var tierStrongNodes = optionsPricingNode.parentElement.querySelectorAll('div > strong');
+      for (var i = 0; i < tierStrongNodes.length; i++) {
+        var strongNode = tierStrongNodes[i];
+        var strongText = textFromNode(strongNode);
+        if (!strongText || !/\$\s*\d/.test(strongText)) continue;
+
+        var descriptorNode = strongNode.parentElement
+          ? strongNode.parentElement.querySelector('.descriptor')
+          : null;
+        var descriptorText = textFromNode(descriptorNode);
+        var tierLine = descriptorText ? (strongText + ' ' + descriptorText) : strongText;
+
+        if (tieredPricing.indexOf(tierLine) === -1) {
+          tieredPricing.push(tierLine);
+        }
+      }
+    }
 
     post({
       type: 'productExtract',
@@ -198,6 +220,8 @@ export const buildProductExtractionScript = (searchedSku = '') => {
         mfrPart: mfrPart || '',
         upc: upc || '',
         brand: brand || '',
+        limitPerHousehold: limitPerHousehold || null,
+        tieredPricing: tieredPricing,
         reviews: { rating: 0, reviewCount: 0 },
         proInstallation: [],
         protectionPlans: [],

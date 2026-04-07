@@ -293,6 +293,50 @@ const extractOpenBoxText = (html) => {
   return `${count} Open Box: ${fromPriceText}`;
 };
 
+const extractLimitPerHousehold = (html) => {
+  const match = String(html || '').match(/<p[^>]*class=['"][^'"]*limitPerHouse[^'"]*['"][^>]*>([\s\S]*?)<\/p>/i);
+  if (!match || !match[1]) return null;
+
+  const text = decodeHtml(
+    String(match[1])
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+
+  return text || null;
+};
+
+const extractTieredPricing = (html) => {
+  const source = String(html || '');
+  const tiers = [];
+
+  const anchorIdx = source.search(/id=['"]options-pricing2022['"]/i);
+  if (anchorIdx === -1) return tiers;
+
+  const windowStart = Math.max(0, anchorIdx - 400);
+  const windowEnd = Math.min(source.length, anchorIdx + 2600);
+  const pricingWindow = source.substring(windowStart, windowEnd);
+
+  const tierPattern = /<div[^>]*>\s*<strong[^>]*>([\s\S]*?)<\/strong>\s*(?:<span[^>]*class=['"][^'"]*descriptor[^'"]*['"][^>]*>([\s\S]*?)<\/span>)?\s*<\/div>/gi;
+  let match;
+
+  while ((match = tierPattern.exec(pricingWindow)) !== null) {
+    const strongText = decodeHtml(String(match[1] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+    const descriptorText = decodeHtml(String(match[2] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+
+    if (!strongText) continue;
+    if (!/\$\s*\d/.test(strongText)) continue;
+
+    const line = descriptorText ? `${strongText} ${descriptorText}` : strongText;
+    if (!tiers.includes(line)) {
+      tiers.push(line);
+    }
+  }
+
+  return tiers;
+};
+
 const extractMemberSaving = (html) => {
   const cleanText = decodeHtml(
     String(html || '')
@@ -803,6 +847,8 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
     
     const stockInfo = extractStock(productHtml, storeId);
     const openBoxText = extractOpenBoxText(productHtml);
+    const limitPerHousehold = extractLimitPerHousehold(productHtml);
+    const tieredPricing = extractTieredPricing(productHtml);
     const memberSaving = extractMemberSaving(mainProductHtml);
     
     const location = extractLocation(productHtml);
@@ -880,6 +926,8 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
       stock: stockInfo.stock,
       inStock: stockInfo.inStock,
       openBoxText,
+      limitPerHousehold,
+      tieredPricing,
       memberSaving: memberSaving?.text || null,
       memberSavingAmount: memberSaving?.amount ?? null,
       location,
