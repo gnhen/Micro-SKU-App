@@ -267,7 +267,29 @@ const extractStock = (html, storeId) => {
       stockText = '0 in Stock';
     }
   }
-  
+
+  // If the page contains a Limited Availability store-message but the dataLayer
+  // indicates the product is inStock (e.g. local store limited availability),
+  // prefer showing "Limited Availability" instead of marking Sold Out.
+  try {
+    const dataLayerScripts = html.match(/<script[^>]*>([\s\S]*?dataLayer\.push[\s\S]*?)<\/script>/gi);
+    if (dataLayerScripts) {
+      for (const script of dataLayerScripts) {
+        const hasLimitedAvailability = /['\"]AvailabilityCode['\"]\s*:\s*['\"]Limited Availability['\"]/i.test(script);
+        const hasInStockTrue = /['\"]inStock['\"]\s*:\s*['\"]True['\"]/i.test(script);
+        const pageShowsLimited = /Limited Availability[\s\S]*class=['\"][^'\"]*storeName[^'\"]*['\"][\s\S]*-\s*Buy\s*In\s*Store/i.test(html);
+        if (hasLimitedAvailability && hasInStockTrue && pageShowsLimited) {
+          stockText = 'Limited Availability';
+          inStock = true;
+          if (!stock) stock = 1;
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    // non-fatal: leave stock as-is
+  }
+
   console.log('Extracted stock:', { stockText, stock, inStock });
   console.log('Stock match details:', stockMatch ? 'Pattern matched' : 'Pattern did not match');
   return { stockText, stock, inStock };
@@ -305,6 +327,26 @@ const extractLimitPerHousehold = (html) => {
   );
 
   return text || null;
+};
+
+const pageContainsUpc = (html, upc) => {
+  const searchedUpc = String(upc || '').replace(/\D/g, '');
+  if (!searchedUpc) return false;
+
+  const content = String(html || '');
+  if (content.includes(searchedUpc)) return true;
+
+  const upcMatch = content.match(/<strong[^>]*class=['"][^'"]*lbl[^'"]*['"][^>]*>UPC:?<\/strong>\s*<span[^>]*class=['"][^'"]*item[^'"]*['"][^>]*>([^<]+)<\/span>/i);
+  if (upcMatch && upcMatch[1]) {
+    return String(upcMatch[1]).replace(/\D/g, '') === searchedUpc;
+  }
+
+  const dataUpcMatch = content.match(/data-upc=['"]([^'"]+)['"]/i);
+  if (dataUpcMatch && dataUpcMatch[1]) {
+    return String(dataUpcMatch[1]).replace(/\D/g, '') === searchedUpc;
+  }
+
+  return false;
 };
 
 const extractTieredPricing = (html) => {
@@ -563,7 +605,21 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
             // Check if it's a SKU mismatch/redirect
             const redirectMatch = htmlText.match(/You searched for[^\d]+(\d+)[^\d]+Showing Results For[^\d]+(\d+)/i);
             if (redirectMatch) {
-                return { error: "skuMismatch", searchedSku: redirectMatch[1], foundSku: redirectMatch[2] };
+                if (expectedSearchSku.length > 10) {
+                  const redirectedResults = parseSearchResultsFromHtml(htmlText, storeId, 1);
+                  if (redirectedResults.length > 0 && redirectedResults[0].url) {
+                    productUrl = redirectedResults[0].url;
+                    const redirectedProductIdMatch = productUrl.match(/product\/(\d+)\//i);
+                    if (redirectedProductIdMatch && redirectedProductIdMatch[1]) {
+                      productId = redirectedProductIdMatch[1];
+                    }
+                    console.log('[fetchProductBySku] UPC redirect matched a result card; attempting first-result fallback:', productUrl);
+                  } else {
+                    return { error: "upcMismatch", searchedSku: redirectMatch[1], foundSku: redirectMatch[2] };
+                  }
+                } else {
+                  return { error: "skuMismatch", searchedSku: redirectMatch[1], foundSku: redirectMatch[2] };
+                }
             }
             
             // Heuristic to avoid header/navigation links (like "Services", "Top Deals"):
@@ -621,11 +677,19 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
             } else {
                 const multiProductMatch = htmlText.match(/data-id=['"](\d+)['"][^>]*data-id=['"](\d+)['"]/i);
                 if (multiProductMatch) {
-                const results = parseSearchResultsFromHtml(htmlText, storeId, 24);
-                if (results.length > 0) {
-                  return { error: "noExactSkuMatch", searchedSku: expectedSearchSku || sku, results };
-                }
-                return { error: "noResults", searchedSku: expectedSearchSku || sku };
+                  const results = parseSearchResultsFromHtml(htmlText, storeId, 24);
+                  if (expectedSearchSku.length > 10 && results.length > 0 && results[0].url) {
+                    productUrl = results[0].url;
+                    const resultProductIdMatch = productUrl.match(/product\/(\d+)\//i);
+                    if (resultProductIdMatch && resultProductIdMatch[1]) {
+                      productId = resultProductIdMatch[1];
+                    }
+                    console.log('[fetchProductBySku] UPC search using first result fallback:', productUrl);
+                  } else if (results.length > 0) {
+                    return { error: "noExactSkuMatch", searchedSku: expectedSearchSku || sku, results };
+                  } else {
+                    return { error: "noResults", searchedSku: expectedSearchSku || sku };
+                  }
                 }
             }
         }
@@ -693,7 +757,14 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
          console.log('URL search detected, adopting page SKU:', actualSku);
          sku = actualSku;
       } else if (actualSku !== sku) {
-        return { error: "skuMismatch", searchedSku: sku, foundSku: actualSku };
+        if (expectedSearchSku.length > 10 && pageContainsUpc(productHtml, sku)) {
+          console.log('[fetchProductBySku] UPC verified on product page despite SKU mismatch; accepting first result');
+          sku = actualSku;
+        } else if (expectedSearchSku.length > 10) {
+          return { error: "upcMismatch", searchedSku: sku, foundSku: actualSku };
+        } else {
+          return { error: "skuMismatch", searchedSku: sku, foundSku: actualSku };
+        }
       }
     }
 

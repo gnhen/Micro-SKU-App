@@ -1235,12 +1235,15 @@ export default function ScanScreen() {
                 data.inStock === false ||
                 /sold\s*out|out\s*of\s*stock/i.test(rawStockText) ||
                 qty === 0;
+              const isLimited = /limited availability/i.test(rawStockText);
               const displayStockText = isSoldOut ? 'Sold Out' : (rawStockText || null);
 
               if (!displayStockText) return null;
 
+              const color = isSoldOut || isLimited ? '#C00' : '#00AA00';
+
               return (
-                <Text selectable style={[styles.stockText, { color: isSoldOut ? '#C00' : '#00AA00' }]}>
+                <Text selectable style={[styles.stockText, { color }]}> 
                   {displayStockText}
                 </Text>
               );
