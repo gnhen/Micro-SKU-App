@@ -798,12 +798,29 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
       }
     }
     
-    const priceMatch = productHtml.match(/<span[^>]*id=['"]pricing['"][^>]*content="([0-9,]+\.?[0-9]*)"/i) ||
-           productHtml.match(/<span[^>]*id=['"]pricing['"][^>]*>\$?([0-9,]+\.?[0-9]*)<\/span>/i) ||
-           productHtml.match(/data-price=['"]([^'"]+)['"]/i);
-    if (priceMatch && priceMatch[1]) {
-      const priceNum = priceMatch[1].replace(/,/g, '');
-      price = `$${priceNum}`;
+    let dataLayerPriceFound = false;
+    const dataLayerScripts = productHtml.match(/<script[^>]*>([\s\S]*?dataLayer\.push[\s\S]*?)<\/script>/gi);
+    if (dataLayerScripts) {
+      for (const script of dataLayerScripts) {
+        if (/['"]taglineMap['"]\s*:\s*['"]map_no_price['"]/i.test(script)) {
+          const gtmPriceMatch = script.match(/['"]productPrice['"]\s*:\s*['"]?([0-9,]+\.?[0-9]*)/i);
+          if (gtmPriceMatch && gtmPriceMatch[1]) {
+            price = `$${gtmPriceMatch[1].replace(/,/g, '')}`;
+            dataLayerPriceFound = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!dataLayerPriceFound) {
+      const priceMatch = productHtml.match(/<span[^>]*id=['"]pricing['"][^>]*content="([0-9,]+\.?[0-9]*)"/i) ||
+             productHtml.match(/<span[^>]*id=['"]pricing['"][^>]*>\$?([0-9,]+\.?[0-9]*)<\/span>/i) ||
+             productHtml.match(/data-price=['"]([^'"]+)['"]/i);
+      if (priceMatch && priceMatch[1]) {
+        const priceNum = priceMatch[1].replace(/,/g, '');
+        price = `$${priceNum}`;
+      }
     }
 
     let mfrPart = "";
