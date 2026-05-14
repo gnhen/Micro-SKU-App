@@ -4,6 +4,7 @@ import {
   StyleSheet, Alert, Image, Modal, Dimensions, PixelRatio, Platform, StatusBar, Linking, ActivityIndicator
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Clipboard from 'expo-clipboard';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchProductBySku, fetchTextSearch, setScraperUserAgent } from '../../services/scraper';
@@ -1070,7 +1071,7 @@ export default function ScanScreen() {
         <View style={styles.searchWrapper}>
           <View style={styles.searchBox}>
             <TextInput
-              style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]}
+              style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg, paddingRight: 40 }]}
               value={textSearchMode ? textQuery : sku}
               onChangeText={textSearchMode ? setTextQuery : setSku}
               placeholder={textSearchMode ? 'Search by name, keyword...' : 'Enter SKU'}
@@ -1085,6 +1086,14 @@ export default function ScanScreen() {
                 }
               }}
             />
+            {(textSearchMode ? textQuery.length > 0 : sku.length > 0) && (
+              <TouchableOpacity
+                style={{ position: 'absolute', right: 12, top: 12 }}
+                onPress={() => textSearchMode ? setTextQuery('') : setSku('')}
+              >
+                <Ionicons name="close-circle" size={20} color="gray" />
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.searchActionsRow}>
@@ -1132,6 +1141,7 @@ export default function ScanScreen() {
             {!!loadingStatus && (
               <Text style={{marginTop: 6, color: theme.text, textAlign: 'center', opacity: 0.6, fontSize: 13}}>{loadingStatus}</Text>
             )}
+            <ActivityIndicator style={{ marginTop: 12 }} size="small" color={theme.text} />
           </View>
         )}
 
@@ -1399,12 +1409,28 @@ export default function ScanScreen() {
 
           {/* Open Product Page Button */}
           {data.url && (
-            <TouchableOpacity 
-              style={styles.openPageButton} 
-              onPress={() => Linking.openURL(data.url)}
-            >
-              <Text style={styles.openPageButtonText}>Open Product Page</Text>
-            </TouchableOpacity>
+            <View style={{flexDirection: 'row', width: '100%', gap: 10, marginTop: 15, marginBottom: 10}}>
+              <TouchableOpacity 
+                style={[styles.openPageButton, { flex: 0.7, marginTop: 0, marginBottom: 0 }]} 
+                onPress={() => Linking.openURL(data.url)}
+              >
+                <Text style={styles.openPageButtonText}>Open Product Page</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.openPageButton, { flex: 0.3, marginTop: 0, marginBottom: 0, backgroundColor: '#4da6ff' }]} 
+                onPress={async () => {
+                  try {
+                    await Clipboard.setStringAsync(data.url);
+                    Alert.alert('Success', 'Product link copied to clipboard.');
+                  } catch (e) {
+                    Alert.alert('Error', 'Failed to copy link.');
+                  }
+                }}
+              >
+                <Text style={[styles.openPageButtonText, { fontSize: 13 }]}>Copy Link</Text>
+              </TouchableOpacity>
+            </View>
           )}
 
           {/* Add to PC Builder Button */}
