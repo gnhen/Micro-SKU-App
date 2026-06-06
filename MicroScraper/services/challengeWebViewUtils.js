@@ -81,10 +81,42 @@ export const buildProductExtractionScript = (searchedSku = '') => {
   try {
     var preferredSku = String(${escapedSku} || '').trim();
     var currentUrl = window.location.href;
+
+  function getStoreInventoryQoh() {
+    var currentUrl = window.location.href || '';
+    var storeIdMatch = currentUrl.match(/[?&]storeid=(\d+)/i);
+    var storeId = storeIdMatch && storeIdMatch[1] ? String(storeIdMatch[1]).replace(/\D/g, '') : '';
+    if (!storeId) return null;
+
+    var inventory = window.inventory;
+    if (!Array.isArray(inventory)) return null;
+
+    for (var i = 0; i < inventory.length; i++) {
+      var entry = inventory[i] || {};
+      var entryStoreId = String(entry.storeNumber || '').replace(/\D/g, '');
+      if (entryStoreId === storeId) {
+        var qoh = Number(entry.qoh);
+        return Number.isFinite(qoh) ? qoh : null;
+      }
+    }
+
+    return null;
+  }
     var path = window.location.pathname || '';
     var isProductPage = /\\/product\\/\\d+\\//i.test(path);
 
     if (!isProductPage) {
+    var stockLower = String(stockText || '').toLowerCase();
+    if (stockLower && stockLower.indexOf('open box') !== -1 && stockLower.indexOf('in stock') === -1 && stockLower.indexOf('out of stock') === -1 && stockLower.indexOf('limited availability') === -1) {
+      stockText = '';
+    }
+
+    var inventoryQoh = getStoreInventoryQoh();
+    if (inventoryQoh !== null) {
+      var resolvedQoh = Math.max(0, inventoryQoh);
+      stockText = resolvedQoh > 0 ? (resolvedQoh >= 25 ? '25+ in Stock' : String(resolvedQoh) + ' in Stock') : '0 in Stock';
+    }
+
       var links = Array.prototype.slice.call(document.querySelectorAll('a[href*="/product/"]'));
 
       if (links.length > 0 && preferredSku) {
@@ -155,6 +187,11 @@ export const buildProductExtractionScript = (searchedSku = '') => {
 
     var inventoryNode = document.querySelector('span.inventoryCnt');
     var stockText = textFromNode(inventoryNode);
+    var stockLower = String(stockText || '').toLowerCase();
+    if (stockLower.indexOf('open box') !== -1 && stockLower.indexOf('new in stock') === -1 && stockLower.indexOf('in stock') === -1 && stockLower.indexOf('out of stock') === -1 && stockLower.indexOf('limited availability') === -1) {
+      stockText = '0 in Stock';
+      stockLower = stockText.toLowerCase();
+    }
     if (!stockText) {
       var bodyMatch = document.body && document.body.innerText
         ? document.body.innerText.match(/(\\d+\\+?\\s+(?:NEW\\s+)?(?:OPEN\\s+BOX\\s+)?IN\\s+STOCK|OUT\\s+OF\\s+STOCK)/i)
@@ -164,8 +201,25 @@ export const buildProductExtractionScript = (searchedSku = '') => {
 
     var lowerStock = String(stockText || '').toLowerCase();
     var inStock = lowerStock.includes('in stock') && !lowerStock.includes('out of stock');
+    var dataLayerScripts = document.querySelectorAll('script');
+    var explicitZeroStock = /^0\b/.test(lowerStock);
+    for (var i = 0; i < dataLayerScripts.length; i++) {
+      var scriptText = String(dataLayerScripts[i].textContent || '');
+      if (/dataLayer\.push/i.test(scriptText) && /['\"]inStock['\"]\s*:\s*['\"]False['\"]/i.test(scriptText) && /open\s*box/i.test(scriptText || stockText || '')) {
+        stockText = '0 in Stock';
+        lowerStock = stockText.toLowerCase();
+        inStock = false;
+        explicitZeroStock = true;
+        break;
+      }
+    }
     var stockMatch = String(stockText || '').match(/(\\d+)/);
     var stock = stockMatch ? parseInt(stockMatch[1], 10) : (inStock ? 1 : 0);
+    if (explicitZeroStock) {
+      stock = 0;
+      inStock = false;
+      stockText = '0 in Stock';
+    }
 
     var productIdMatch = path.match(/\\/product\\/(\\d+)\\//i);
     var productId = productIdMatch && productIdMatch[1] ? productIdMatch[1] : null;

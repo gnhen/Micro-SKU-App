@@ -23,6 +23,7 @@ import { lookupUiCare } from '@/constants/uiCareData';
 import { lookupStore071MergedCode, lookupStore071MergedCodes } from '@/constants/store071Lookup';
 import { findStore071MapEntries, STORE_071_MAP_IMAGE, STORE_071_MAP_IMAGE_WIDTH, STORE_071_MAP_IMAGE_HEIGHT, STORE_071_MAP_PAGE_HEIGHT, STORE_071_MAP_PAGE_WIDTH } from '@/constants/store071MapIndex';
 import type { Store071MapEntry } from '@/constants/store071MapIndex';
+import { getDeckMeaning } from '@/constants/deckMeanings';
 import PlansModal from '@/components/PlansModal';
 import { createChallengeRequest } from '../../services/challengeSession';
 import { CHALLENGE_SIGNAL_SCRIPT, isChallengeSignal } from '@/services/challengeWebViewUtils';
@@ -1088,8 +1089,9 @@ export default function ScanScreen() {
             />
             {(textSearchMode ? textQuery.length > 0 : sku.length > 0) && (
               <TouchableOpacity
-                style={{ position: 'absolute', right: 12, top: 12 }}
+                style={{ position: 'absolute', right: 6, top: 6, width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }}
                 onPress={() => textSearchMode ? setTextQuery('') : setSku('')}
+                hitSlop={10}
               >
                 <Ionicons name="close-circle" size={20} color="gray" />
               </TouchableOpacity>
@@ -1353,8 +1355,17 @@ export default function ScanScreen() {
             {(() => {
               const rawDeck = (data as any)?.deck;
               const normalizedDeck = typeof rawDeck === 'string' && rawDeck.trim().length > 0 ? rawDeck.trim() : 'N/A';
+              const deckMeaning = getDeckMeaning(normalizedDeck);
               return (
-                <Text selectable style={[styles.infoText, { color: theme.text }]}>Deck: {normalizedDeck}</Text>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    if (!deckMeaning) return;
+                    Alert.alert(normalizedDeck, deckMeaning);
+                  }}
+                >
+                  <Text selectable style={[styles.infoText, { color: theme.text, textDecorationLine: deckMeaning ? 'underline' : 'none' }]}>Deck: {normalizedDeck}</Text>
+                </TouchableOpacity>
               );
             })()}
           </View>

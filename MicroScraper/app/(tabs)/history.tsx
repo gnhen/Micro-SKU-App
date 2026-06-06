@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, StatusBar, Alert } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, StatusBar, Alert, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import React, { useState } from 'react';
@@ -21,6 +21,7 @@ export default function HistoryScreen() {
   };
 
   const [history, setHistory] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useFocusEffect(
     () => {
@@ -40,10 +41,10 @@ export default function HistoryScreen() {
   };
 
   const clearHistory = async () => {
-    Alert.alert('Clear History?', 'This will remove all search history.', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert('Are you sure?', 'Clear all history?', [
+      { text: 'No', style: 'cancel' },
       {
-        text: 'Clear All',
+        text: 'Yes',
         style: 'destructive',
         onPress: async () => {
           try {
@@ -76,12 +77,26 @@ export default function HistoryScreen() {
     }
   };
 
+  const filteredHistory = history.filter((item) => {
+    const haystack = `${item.name || ''} ${item.sku || ''}`.toLowerCase();
+    return haystack.includes(searchQuery.trim().toLowerCase());
+  });
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
         <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
         <ScrollView contentContainerStyle={[styles.scrollContent, { backgroundColor: colors.background }]}>
           <Text style={[styles.header, { color: colors.text }]}>Search History</Text>
+
+          <TextInput
+            style={[styles.searchInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search history"
+            placeholderTextColor="#888"
+            autoCorrect={false}
+          />
 
           {history.length === 0 ? (
             <Text style={[styles.emptyText, { color: colors.text }]}>No search history yet</Text>
@@ -92,7 +107,7 @@ export default function HistoryScreen() {
                 <Text style={styles.clearButtonText}>Clear All History</Text>
               </TouchableOpacity>
 
-              {history.map((item, index) => (
+              {filteredHistory.map((item, index) => (
                 <Swipeable
                   key={index}
                   renderRightActions={() => (
@@ -132,6 +147,7 @@ const styles = StyleSheet.create({
   emptyText:       { fontSize: 16, textAlign: 'center', marginTop: 40 },
   clearButton:     { backgroundColor: '#C00', padding: 10, borderRadius: 8, marginBottom: 20 },
   clearButtonText: { color: '#fff', textAlign: 'center', fontWeight: '600' },
+  searchInput:     { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 14 },
   historyItem:     { padding: 15, borderWidth: 1, borderRadius: 8, marginBottom: 10 },
   itemName:        { fontSize: 16, fontWeight: '600', marginBottom: 4 },
   itemSku:         { fontSize: 14, marginBottom: 2 },

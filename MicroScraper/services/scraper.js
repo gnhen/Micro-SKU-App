@@ -235,37 +235,100 @@ const extractLocation = (html) => {
   return null;
 };
 
+const extractStoreInventoryQoh = (html, storeId) => {
+  const normalizedStoreId = String(storeId || '').replace(/\D/g, '');
+  if (!normalizedStoreId) return null;
+
+  const inventoryMatch = String(html || '').match(/var\s+inventory\s*=\s*(\[[\s\S]*?\]);/i);
+  if (!inventoryMatch || !inventoryMatch[1]) return null;
+
+  try {
+    const inventory = JSON.parse(inventoryMatch[1]);
+    if (!Array.isArray(inventory)) return null;
+
+    const entry = inventory.find((item) => String((item && item.storeNumber) || '').replace(/\D/g, '') === normalizedStoreId);
+    if (!entry || entry.qoh === undefined || entry.qoh === null) return null;
+
+    const qoh = Number(entry.qoh);
+    return Number.isFinite(qoh) ? qoh : null;
+  } catch (error) {
+    return null;
+  }
+};
+
 const extractStock = (html, storeId) => {
   let stockText = null;
   let stock = 0;
   let inStock = false;
+
+  const inventoryQoh = extractStoreInventoryQoh(html, storeId);
+  if (inventoryQoh !== null) {
+    stock = Math.max(0, inventoryQoh);
+    inStock = stock > 0;
+    stockText = stock > 0
+      ? (stock >= 25 ? '25+ in Stock' : `${stock} in Stock`)
+      : '0 in Stock';
+  }
   
   const stockMatch = html.match(/<span[^>]*class=['"][^'"]*inventoryCnt[^'"]*['"][^>]*>([\s\S]*?)<\/span><span[^>]*class=['"][^'"]*storeName[^'"]*['"][^>]*>([^<]+)<\/span>/i);
   if (stockMatch) {
     let countText = stockMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    
-    const numMatch = countText.match(/(\d+)\+?/);
-    if (numMatch) {
-      stock = parseInt(numMatch[1], 10);
-      inStock = true;
-      if (countText.includes('+')) {
-        stockText = numMatch[1] + '+ in Stock';
-      } else {
-        stockText = numMatch[1] + ' in Stock';
-      }
-    }
-    
-    if (countText.match(/in\s*stock/i)) {
-      inStock = true;
-      if (stock === 0) {
-        stock = 1;
-        stockText = '1 in Stock';
-      }
-    } else if (countText.match(/out\s*of\s*stock/i)) {
-      inStock = false;
+
+    const normalizedCountText = countText.toLowerCase();
+    const isOpenBoxOnly = normalizedCountText.includes('open box') && !normalizedCountText.includes('in stock') && !normalizedCountText.includes('out of stock') && !normalizedCountText.includes('limited availability');
+    const explicitZeroStock = /^0\b/.test(normalizedCountText);
+
+    if (normalizedCountText.includes('open box') && !normalizedCountText.includes('new in stock') && !normalizedCountText.includes('in stock') && !normalizedCountText.includes('out of stock') && !normalizedCountText.includes('limited availability')) {
       stock = 0;
+      inStock = false;
       stockText = '0 in Stock';
+      countText = '';
     }
+
+    if (!isOpenBoxOnly) {
+      const numMatch = countText.match(/(\d+)\+?/);
+      if (numMatch && stockText === null) {
+        stock = parseInt(numMatch[1], 10);
+        inStock = true;
+        if (countText.includes('+')) {
+          stockText = numMatch[1] + '+ in Stock';
+        } else {
+          stockText = numMatch[1] + ' in Stock';
+        }
+      }
+
+      if (countText.match(/in\s*stock/i)) {
+        inStock = true;
+        if (stock === 0 && !explicitZeroStock) {
+          stock = 1;
+          stockText = '1 in Stock';
+        } else if (explicitZeroStock) {
+          stockText = '0 in Stock';
+        }
+      } else if (countText.match(/out\s*of\s*stock/i)) {
+        inStock = false;
+        stock = 0;
+        stockText = '0 in Stock';
+      }
+    }
+  }
+
+  try {
+    const dataLayerScripts = html.match(/<script[^>]*>([\s\S]*?dataLayer\.push[\s\S]*?)<\/script>/gi);
+    if (dataLayerScripts) {
+      for (const script of dataLayerScripts) {
+        const hasInStockFalse = /['\"]inStock['\"]\s*:\s*['\"]False['\"]/i.test(script);
+        const hasOpenBoxCount = /open\s*box/i.test(String(stockText || '')) || /open\s*box/i.test(script);
+        if (hasInStockFalse && hasOpenBoxCount) {
+          stockText = '0 in Stock';
+          stock = 0;
+          inStock = false;
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    // non-fatal: leave stock as-is
   }
 
   // If the page contains a Limited Availability store-message but the dataLayer
