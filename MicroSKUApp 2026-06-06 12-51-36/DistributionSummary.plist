@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>MicroSKUApp.ipa</key>
+	<array>
+		<dict>
+			<key>architectures</key>
+			<array>
+				<string>arm64</string>
+			</array>
+			<key>buildNumber</key>
+			<string>6</string>
+			<key>certificate</key>
+			<dict>
+				<key>SHA1</key>
+				<string>A4CA865FC3AB0E4C7ABA7377CA8912C5E8E87159</string>
+				<key>dateExpires</key>
+				<string>2/6/27</string>
+				<key>type</key>
+				<string>Apple Development</string>
+			</dict>
+			<key>embeddedBinaries</key>
+			<array>
+				<dict>
+					<key>architectures</key>
+					<array>
+						<string>arm64</string>
+					</array>
+					<key>buildNumber</key>
+					<string>1</string>
+					<key>certificate</key>
+					<dict>
+						<key>SHA1</key>
+						<string>A4CA865FC3AB0E4C7ABA7377CA8912C5E8E87159</string>
+						<key>dateExpires</key>
+						<string>2/6/27</string>
+						<key>type</key>
+						<string>Apple Development</string>
+					</dict>
+					<key>name</key>
+					<string>React.framework</string>
+					<key>team</key>
+					<dict>
+						<key>id</key>
+						<string>A8H3U2CM86</string>
+						<key>name</key>
+						<string>Grant Hendricks (Individual)</string>
+					</dict>
+					<key>versionNumber</key>
+					<string>1.0</string>
+				</dict>
+				<dict>
+					<key>architectures</key>
+					<array>
+						<string>arm64</string>
+					</array>
+					<key>buildNumber</key>
+					<string>1</string>
+					<key>certificate</key>
+					<dict>
+						<key>SHA1</key>
+						<string>A4CA865FC3AB0E4C7ABA7377CA8912C5E8E87159</string>
+						<key>dateExpires</key>
+						<string>2/6/27</string>
+						<key>type</key>
+						<string>Apple Development</string>
+					</dict>
+					<key>name</key>
+					<string>ReactNativeDependencies.framework</string>
+					<key>team</key>
+					<dict>
+						<key>id</key>
+						<string>A8H3U2CM86</string>
+						<key>name</key>
+						<string>Grant Hendricks (Individual)</string>
+					</dict>
+					<key>versionNumber</key>
+					<string>1.0</string>
+				</dict>
+				<dict>
+					<key>architectures</key>
+					<array>
+						<string>arm64</string>
+					</array>
+					<key>buildNumber</key>
+					<string>0.12.0</string>
+					<key>certificate</key>
+					<dict>
+						<key>SHA1</key>
+						<string>A4CA865FC3AB0E4C7ABA7377CA8912C5E8E87159</string>
+						<key>dateExpires</key>
+						<string>2/6/27</string>
+						<key>type</key>
+						<string>Apple Development</string>
+					</dict>
+					<key>name</key>
+					<string>hermes.framework</string>
+					<key>team</key>
+					<dict>
+						<key>id</key>
+						<string>A8H3U2CM86</string>
+						<key>name</key>
+						<string>Grant Hendricks (Individual)</string>
+					</dict>
+					<key>versionNumber</key>
+					<string>0.12.0</string>
+				</dict>
+			</array>
+			<key>entitlements</key>
+			<dict>
+				<key>application-identifier</key>
+				<string>A8H3U2CM86.com.microscraper.app</string>
+				<key>com.apple.developer.team-identifier</key>
+				<string>A8H3U2CM86</string>
+				<key>get-task-allow</key>
+				<true/>
+			</dict>
+			<key>name</key>
+			<string>MicroSKUApp.app</string>
+			<key>profile</key>
+			<dict>
+				<key>UUID</key>
+				<string>03feaa81-c50a-46e1-b79d-4d294f4c5751</string>
+				<key>dateExpires</key>
+				<string>6/5/27</string>
+				<key>name</key>
+				<string>iOS Team Provisioning Profile: com.microscraper.app</string>
+			</dict>
+			<key>team</key>
+			<dict>
+				<key>id</key>
+				<string>A8H3U2CM86</string>
+				<key>name</key>
+				<string>Grant Hendricks (Individual)</string>
+			</dict>
+			<key>versionNumber</key>
+			<string>0.3.119</string>
+		</dict>
+	</array>
+</dict>
+</plist>

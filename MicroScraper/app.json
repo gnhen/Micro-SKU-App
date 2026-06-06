@@ -2,7 +2,7 @@
   "expo": {
     "name": "Micro SKU App",
     "slug": "MicroScraper",
-    "version": "0.3.118",
+    "version": "0.3.119",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "microscraper",
@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.microscraper.app",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "supportsTablet": true,
       "deploymentTarget": "13.4",
       "infoPlist": {
@@ -25,7 +25,7 @@
     },
     "android": {
       "package": "com.microscraper.app",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
