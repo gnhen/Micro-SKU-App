@@ -1,4 +1,4 @@
-import { Alert, Linking, Platform } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import versionInfo from '../version.json';
 
 // Configure your GitHub repo here
@@ -25,12 +25,7 @@ const compareVersions = (v1, v2) => {
 };
 
 export const checkForUpdates = async (silentOnUpToDate = false) => {
-  if (Platform.OS === 'android' && !silentOnUpToDate) {
-    return;
-  }
-  
   try {
-    console.log('[Update] Checking for updates...');
     const response = await fetch(GITHUB_API_URL);
     
     if (!response.ok) {
@@ -40,8 +35,6 @@ export const checkForUpdates = async (silentOnUpToDate = false) => {
     const releaseData = await response.json();
     const latestVersion = releaseData.tag_name; // e.g., "v0.1.2"
     const currentVersion = `v${versionInfo.version}`; // e.g., "v0.1.1"
-    
-    console.log(`[Update] Current: ${currentVersion}, Latest: ${latestVersion}`);
     
     if (silentOnUpToDate) {
       return latestVersion;

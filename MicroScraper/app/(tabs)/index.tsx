@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Text, View, TextInput, TouchableOpacity, ScrollView, 
-  StyleSheet, Alert, Image, Modal, Dimensions, PixelRatio, Platform, StatusBar, Linking, ActivityIndicator
+import {
+  Text, View, TextInput, TouchableOpacity, ScrollView,
+  StyleSheet, Alert, Image, Modal, Dimensions, PixelRatio, Platform, StatusBar, Linking, ActivityIndicator,
+  LayoutAnimation,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchProductBySku, fetchTextSearch, setScraperUserAgent } from '../../services/scraper';
@@ -25,6 +27,8 @@ import { findStore071MapEntries, STORE_071_MAP_IMAGE, STORE_071_MAP_IMAGE_WIDTH,
 import type { Store071MapEntry } from '@/constants/store071MapIndex';
 import { getDeckMeaning } from '@/constants/deckMeanings';
 import PlansModal from '@/components/PlansModal';
+import SkeletonCard from '@/components/SkeletonCard';
+import SelectableText from '@/components/SelectableText';
 import { createChallengeRequest } from '../../services/challengeSession';
 import { CHALLENGE_SIGNAL_SCRIPT, isChallengeSignal } from '@/services/challengeWebViewUtils';
 import type { ItemList, ListItem } from './list';
@@ -106,9 +110,17 @@ export default function ScanScreen() {
   const [pendingListItem, setPendingListItem] = useState<ListItem | null>(null);
   const [availableListsForPicker, setAvailableListsForPicker] = useState<ItemList[]>([]);
 
-  const mismatchAlertActive = useRef(false);
-  const noResultsAlertActive = useRef(false);
-    const mapMinScaleRef = useRef(1);
+  const mismatchAlertActive = useRef<boolean>(false);
+  const noResultsAlertActive = useRef<boolean>(false);
+  const mapMinScaleRef = useRef<number>(1);
+  const searchRequestRef = useRef<number>(0);
+  const prevDataRef = useRef<any>(null);
+  const resultOpacity = useSharedValue(0);
+  const resultTranslateY = useSharedValue(18);
+  const resultCardStyle = useAnimatedStyle(() => ({
+    opacity: resultOpacity.value,
+    transform: [{ translateY: resultTranslateY.value }],
+  }));
 
   // Text search mode
   const [textSearchMode, setTextSearchMode] = useState(false);
@@ -270,8 +282,8 @@ export default function ScanScreen() {
           return (
             <View key={`star-${idx}`} style={styles.ratingStarWrap}>
               <Text style={styles.ratingStarBase}>★</Text>
-              <View style={[styles.ratingStarFillWrap, { width: `${fill * 100}%` }]}> 
-                <Text style={styles.ratingStarFill}>★</Text>
+              <View style={[styles.ratingStarFillWrap, { width: `${fill * 100}%` }]}>
+                <Text style={[styles.ratingStarFill, { color: theme.starGold }]}>★</Text>
               </View>
             </View>
           );
@@ -415,6 +427,17 @@ export default function ScanScreen() {
     };
   }, []);
 
+  // Animate result card in when data first arrives (null → something)
+  useEffect(() => {
+    if (data && !prevDataRef.current) {
+      resultOpacity.value = 0;
+      resultTranslateY.value = 18;
+      resultOpacity.value = withSpring(1, { damping: 18, stiffness: 120 });
+      resultTranslateY.value = withSpring(0, { damping: 18, stiffness: 120 });
+    }
+    prevDataRef.current = data;
+  }, [data]);
+
   const theme = {
     bg: colors.background,
     text: colors.text,
@@ -422,6 +445,12 @@ export default function ScanScreen() {
     border: colors.border,
     inputBg: colors.background,
     primary: colors.tint,
+    priceRed: colors.priceRed,
+    inStockGreen: colors.inStockGreen,
+    lowStockOrange: colors.lowStockOrange,
+    starGold: colors.starGold,
+    subtleText: colors.subtleText,
+    memberSavings: colors.memberSavings,
   };
 
   const selectedStoreLabel = String(
@@ -585,11 +614,25 @@ export default function ScanScreen() {
       const addToListById = async (listId: string) => {
         const latestRaw = await AsyncStorage.getItem(LIST_STORAGE_KEY);
         const latestLists: ItemList[] = latestRaw ? JSON.parse(latestRaw) : lists;
+        const targetList = latestLists.find(l => l.id === listId);
+        if (targetList?.items.some(i => i.sku === newItem.sku)) {
+          const addAnyway = await new Promise<boolean>(resolve =>
+            Alert.alert(
+              'Already in List',
+              `"${newItem.name}" is already in "${targetList.name}". Add again?`,
+              [
+                { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+                { text: 'Add Again', onPress: () => resolve(true) },
+              ]
+            )
+          );
+          if (!addAnyway) { setShowListPickerModal(false); setPendingListItem(null); return; }
+        }
         const updated = latestLists.map(l =>
           l.id === listId ? { ...l, items: [...l.items, newItem] } : l
         );
         await AsyncStorage.setItem(LIST_STORAGE_KEY, JSON.stringify(updated));
-        Alert.alert('Added!', `"${newItem.name}" added to "${latestLists.find(l => l.id === listId)?.name}".`);
+        Alert.alert('Added!', `"${newItem.name}" added to "${targetList?.name}".`);
         setShowListPickerModal(false);
         setPendingListItem(null);
       };
@@ -729,6 +772,7 @@ export default function ScanScreen() {
     setSingleImageFallbackTried(false);
     setValidImageUrls(finalData.imageUrls || []);
     addToHistory(finalData);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     if (fromBarcodeScan) {
       setScannerEnabled(true);
@@ -796,6 +840,9 @@ export default function ScanScreen() {
     const canonicalSku = requestedSku || extractSkuFromSearchUrl(targetSku) || String(targetSku);
     const isURL = originalWasUrl || isProductUrlInput(targetSku);
 
+    // Increment request counter — any response with a stale ID is discarded
+    const thisRequestId = ++searchRequestRef.current;
+
     setLoading(true);
     setScanning(false);
     setData(null);
@@ -807,14 +854,19 @@ export default function ScanScreen() {
     setSingleImageFallbackTried(false);
     setStore071MergedCode(null);
     setStore071MergedCodes([]);
-    
+
     try {
-      console.log(`[handleSearch] Starting search - SKU: ${targetSku}, isUPC: ${isUPC}, fromBarcodeScan: ${fromBarcodeScan}`);
       const storeId = await AsyncStorage.getItem('storeId') || '071';
-      console.log(`[handleSearch] Using storeId: ${storeId}`);
-      const result: any = await fetchProductBySku(targetSku, storeId, (msg) => setLoadingStatus(msg));
-      console.log(`[handleSearch] Result received:`, JSON.stringify(result, null, 2).substring(0, 500));
-      
+      const result: any = await fetchProductBySku(targetSku, storeId, (msg) => {
+        if (searchRequestRef.current === thisRequestId) setLoadingStatus(msg);
+      });
+
+      // A newer search has started — discard this stale response
+      if (searchRequestRef.current !== thisRequestId) {
+        if (fromBarcodeScan) setScannerEnabled(true);
+        return;
+      }
+
       setLoading(false);
       setLoadingStatus('');
     
@@ -948,6 +1000,7 @@ export default function ScanScreen() {
       setSingleImageFallbackTried(false);
        setValidImageUrls(result.imageUrls || []);
        addToHistory(finalData);
+       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } else {
       const finalData = { ...result, sku: canonicalSku };
       setData(finalData);
@@ -958,6 +1011,7 @@ export default function ScanScreen() {
       setSingleImageFallbackTried(false);
       setValidImageUrls(result.imageUrls || []);
       addToHistory(finalData);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
     
     // Re-enable scanner after processing completes (noResults defers this to the alert's OK button)
@@ -1108,8 +1162,11 @@ export default function ScanScreen() {
                   setTextQuery('');
                   setTextResults([]);
                   setError(null);
-                } else if (textQuery.trim()) {
-                  handleTextSearch();
+                } else {
+                  setSku('');
+                  if (textQuery.trim()) {
+                    handleTextSearch();
+                  }
                 }
               }}
             >
@@ -1137,13 +1194,10 @@ export default function ScanScreen() {
           </View>
         </View>
 
-        {(loading || textSearchLoading) && (
+        {loading && !textSearchLoading && <SkeletonCard loadingStatus={loadingStatus} />}
+        {textSearchLoading && (
           <View style={{alignItems: 'center'}}>
-            <Text style={{marginTop:20, color: theme.text, textAlign: 'center'}}>Loading...</Text>
-            {!!loadingStatus && (
-              <Text style={{marginTop: 6, color: theme.text, textAlign: 'center', opacity: 0.6, fontSize: 13}}>{loadingStatus}</Text>
-            )}
-            <ActivityIndicator style={{ marginTop: 12 }} size="small" color={theme.text} />
+            <ActivityIndicator style={{ marginTop: 20 }} size="small" color={theme.text} />
           </View>
         )}
 
@@ -1180,7 +1234,7 @@ export default function ScanScreen() {
                     const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : null;
                     const isOut = qty === 0;
                     const isLow = qty !== null && qty > 0 && qty <= 5;
-                    const badgeColor = isOut ? '#C00' : isLow ? '#E07000' : '#1a7a1a';
+                    const badgeColor = isOut ? theme.priceRed : isLow ? theme.lowStockOrange : theme.inStockGreen;
                     return (
                       <View style={[styles.textStockBadge, { backgroundColor: badgeColor }]}>
                         <Text style={styles.textStockBadgeText}>{item.stockText}</Text>
@@ -1195,13 +1249,19 @@ export default function ScanScreen() {
         )}
 
         {error && (
-          <View style={[styles.errorCard, { borderColor: '#C00', backgroundColor: theme.card }]}>
-            <Text style={[styles.errorText, { color: '#C00' }]}>{error}</Text>
+          <View style={[styles.errorCard, { borderColor: theme.priceRed, backgroundColor: theme.card }]}>
+            <Text style={[styles.errorText, { color: theme.priceRed }]}>{error}</Text>
           </View>
         )}
 
       {data && (
-        <View style={[styles.resultCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+        <Animated.View
+          style={[
+            styles.resultCard,
+            { borderColor: theme.border, backgroundColor: theme.card },
+            resultCardStyle,
+          ]}
+        >
           {validImageUrls && validImageUrls.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.imageGallery}>
               {validImageUrls.map((imgUrl, idx) => (
@@ -1238,7 +1298,7 @@ export default function ScanScreen() {
           )}
           
           <View style={styles.priceRow}>
-            <Text selectable style={styles.price}>{data.price}</Text>
+            <SelectableText style={[styles.price, { color: theme.priceRed }]}>{data.price}</SelectableText>
             {(() => {
               const rawStockText = String(data.stockText ?? '').trim();
               const qtyMatch = rawStockText.match(/^(\d+)/);
@@ -1252,7 +1312,7 @@ export default function ScanScreen() {
 
               if (!displayStockText) return null;
 
-              const color = isSoldOut || isLimited ? '#C00' : '#00AA00';
+              const color = isSoldOut || isLimited ? theme.priceRed : theme.inStockGreen;
 
               return (
                 <Text selectable style={[styles.stockText, { color }]}> 
@@ -1286,7 +1346,7 @@ export default function ScanScreen() {
             );
           })()}
 
-          <Text selectable style={[styles.productTitle, { color: theme.text }]}>{data.name}</Text>
+          <SelectableText style={[styles.productTitle, { color: theme.text }]}>{data.name}</SelectableText>
           {(data as any)?.limitPerHousehold ? (
             <Text selectable style={styles.limitPerHouseholdText}>{String((data as any).limitPerHousehold).toUpperCase()}</Text>
           ) : null}
@@ -1300,7 +1360,7 @@ export default function ScanScreen() {
 
             const newPrice = Math.max(0, currentPrice - savingAmount);
             return (
-              <Text selectable style={styles.memberSavingText}>
+              <Text selectable style={[styles.memberSavingText, { color: theme.memberSavings }]}>
                 Members Save ${savingAmount.toFixed(2)}! New Price: ${newPrice.toFixed(2)}
               </Text>
             );
@@ -1341,16 +1401,16 @@ export default function ScanScreen() {
 
           <View style={styles.productMetaBlock}>
             {data.location && (
-              <Text selectable style={[styles.infoText, { color: theme.text }]}>Location: {data.location}</Text>
+              <SelectableText style={[styles.infoText, { color: theme.text }]}>Location: {data.location}</SelectableText>
             )}
             {data.mfrPart && (
-              <Text selectable style={[styles.infoText, { color: theme.text }]}>Mfr Part#: {data.mfrPart}</Text>
+              <SelectableText style={[styles.infoText, { color: theme.text }]}>Mfr Part#: {data.mfrPart}</SelectableText>
             )}
             {data.upc && (
-              <Text selectable style={[styles.infoText, { color: theme.text }]}>UPC: {data.upc}</Text>
+              <SelectableText style={[styles.infoText, { color: theme.text }]}>UPC: {data.upc}</SelectableText>
             )}
             {(((data as any)?.sku) || sku) && (
-              <Text selectable style={[styles.infoText, { color: theme.text }]}>SKU: {((data as any)?.sku) || sku}</Text>
+              <SelectableText style={[styles.infoText, { color: theme.text }]}>SKU: {((data as any)?.sku) || sku}</SelectableText>
             )}
             {(() => {
               const rawDeck = (data as any)?.deck;
@@ -1364,7 +1424,7 @@ export default function ScanScreen() {
                     Alert.alert(normalizedDeck, deckMeaning);
                   }}
                 >
-                  <Text selectable style={[styles.infoText, { color: theme.text, textDecorationLine: deckMeaning ? 'underline' : 'none' }]}>Deck: {normalizedDeck}</Text>
+                  <SelectableText style={[styles.infoText, { color: theme.text, textDecorationLine: deckMeaning ? 'underline' : 'none' }]}>Deck: {normalizedDeck}</SelectableText>
                 </TouchableOpacity>
               );
             })()}
@@ -1394,29 +1454,45 @@ export default function ScanScreen() {
             </View>
           )}
 
-          <TouchableOpacity 
-            style={styles.specsHeader}
-            onPress={() => setExpandedSpecs(!expandedSpecs)}
-          >
-            <Text selectable style={[styles.sectionHeader, { color: theme.text }]}>
-              Specifications ({data.specs.length})
-            </Text>
-            <Ionicons 
-              name={expandedSpecs ? "chevron-up" : "chevron-down"} 
-              size={20} 
-              color={theme.text} 
-            />
-          </TouchableOpacity>
-          
-          {expandedSpecs && (
-            <ScrollView style={styles.specsContainer} nestedScrollEnabled={true}>
-              {data.specs.map((spec, i) => (
-                <Text selectable key={i} style={[styles.specText, { color: theme.text }]}>
-                  • {spec}
-                </Text>
-              ))}
-            </ScrollView>
-          )}
+          {(() => {
+            const filteredSpecs = (data.specs as string[]).filter(s => {
+              const clean = s.replace(/^[•\s]+/, '').trim();
+              if (!clean || /^feature:/i.test(clean)) return false;
+              // drop bare single-word category headers with no colon (e.g. "Other")
+              if (!clean.includes(':') && !clean.includes(' ')) return false;
+              return true;
+            });
+            if (filteredSpecs.length === 0) return null;
+            return (
+              <>
+                <TouchableOpacity
+                  style={styles.specsHeader}
+                  onPress={() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setExpandedSpecs(!expandedSpecs);
+                  }}
+                >
+                  <Text selectable style={[styles.sectionHeader, { color: theme.text }]}>
+                    Specifications ({filteredSpecs.length})
+                  </Text>
+                  <Ionicons
+                    name={expandedSpecs ? 'chevron-up' : 'chevron-down'}
+                    size={20}
+                    color={theme.text}
+                  />
+                </TouchableOpacity>
+                {expandedSpecs && (
+                  <ScrollView style={styles.specsContainer} nestedScrollEnabled={true}>
+                    {filteredSpecs.map((spec, i) => (
+                      <Text selectable key={i} style={[styles.specText, { color: theme.text }]}>
+                        • {spec}
+                      </Text>
+                    ))}
+                  </ScrollView>
+                )}
+              </>
+            );
+          })()}
 
           {/* Open Product Page Button */}
           {data.url && (
@@ -1462,7 +1538,7 @@ export default function ScanScreen() {
               </Text>
             </TouchableOpacity>
           )}
-        </View>
+        </Animated.View>
       )}
       </ScrollView>
 
@@ -1542,7 +1618,7 @@ export default function ScanScreen() {
               style={styles.listPickerCancelBtn}
               onPress={() => { setShowListPickerModal(false); setPendingListItem(null); }}
             >
-              <Text style={{ fontWeight: 'bold', fontSize: 15, color: '#555' }}>Cancel</Text>
+              <Text style={{ fontWeight: 'bold', fontSize: 15, color: theme.subtleText }}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>

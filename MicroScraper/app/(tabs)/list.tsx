@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Text,
   View,
@@ -11,12 +11,16 @@ import {
   Modal,
   ActivityIndicator,
   Platform,
+  Share,
+  BackHandler,
+  LayoutAnimation,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as Haptics from 'expo-haptics';
 import { WebView } from 'react-native-webview';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -117,6 +121,9 @@ export default function ListScreen() {
   const [bulkScanEnabled, setBulkScanEnabled] = useState(true);
   const [toastMsg, setToastMsg] = useState('');
   const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [listSearchQuery, setListSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState<'default' | 'price_asc' | 'price_desc' | 'name_asc'>('default');
+  const [showSortModal, setShowSortModal] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [backgroundChallenge, setBackgroundChallenge] = useState<any>(null);
   const backgroundChallengeResolverRef = useRef<any>(null);
@@ -151,6 +158,21 @@ export default function ListScreen() {
     }, [])
   );
 
+  // ── Android hardware back button: close open modals before navigating ───────
+  useFocusEffect(
+    React.useCallback(() => {
+      if (Platform.OS !== 'android') return;
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (showSortModal) { setShowSortModal(false); return true; }
+        if (showRenameModal) { setShowRenameModal(false); return true; }
+        if (showListPicker) { setShowListPicker(false); return true; }
+        if (showAddItemModal) { setShowAddItemModal(false); return true; }
+        return false;
+      });
+      return () => sub.remove();
+    }, [showSortModal, showRenameModal, showListPicker, showAddItemModal])
+  );
+
   const loadData = async () => {
     const [sid, raw] = await Promise.all([
       AsyncStorage.getItem('storeId'),
@@ -170,13 +192,41 @@ export default function ListScreen() {
     }
   };
 
-  const saveLists = async (updated: ItemList[]) => {
+  const saveLists = async (updated: ItemList[], animate = false) => {
+    if (animate) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setLists(updated);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   };
 
   // ── Current list ────────────────────────────────────────────────────────────
   const currentList = lists.find(l => l.id === currentListId) ?? null;
+
+  const filteredAndSortedItems = useMemo(() => {
+    if (!currentList) return [];
+    let items = currentList.items;
+    if (listSearchQuery.trim()) {
+      const q = listSearchQuery.trim().toLowerCase();
+      items = items.filter(i => i.name.toLowerCase().includes(q) || i.sku.includes(q));
+    }
+    if (sortOrder === 'price_asc') return [...items].sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
+    if (sortOrder === 'price_desc') return [...items].sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
+    if (sortOrder === 'name_asc') return [...items].sort((a, b) => a.name.localeCompare(b.name));
+    return items;
+  }, [currentList, listSearchQuery, sortOrder]);
+
+  const handleShareList = async () => {
+    if (!currentList) return;
+    const lines = currentList.items.map((item, idx) =>
+      `${idx + 1}. ${item.name} (SKU: ${item.sku}) — ${item.rawPrice}`
+    );
+    const total = listTotal(currentList.items);
+    const text = `${currentList.name}\n\n${lines.join('\n')}\n\nPre-Tax Total: ${total}`;
+    try {
+      await Share.share({ message: text, title: currentList.name });
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to share list.');
+    }
+  };
 
   // ── Create list (instant, random 3-digit name) ─────────────────────────────
   const handleCreateList = async () => {
@@ -444,10 +494,11 @@ export default function ListScreen() {
           setToastMsg(`Not found: ${processed}`);
         }
       } else {
+        const resolvedSku = result.sku || processed;
         const price = parsePrice((result as any).sale_price || result.price);
         const newItem: ListItem = {
           id: Date.now().toString(),
-          sku: result.sku || processed,
+          sku: resolvedSku,
           name: result.name || processed,
           price,
           rawPrice: (result as any).sale_price || result.price || '—',
@@ -458,12 +509,18 @@ export default function ListScreen() {
         };
         // Read fresh copy from storage to avoid stale state
         const latestRaw = await AsyncStorage.getItem(STORAGE_KEY);
-        const latestLists: ItemList[] = latestRaw ? JSON.parse(latestRaw) : lists;
-        const updated = latestLists.map(l =>
-          l.id === currentListId ? { ...l, items: [...l.items, newItem] } : l
-        );
-        await saveLists(updated);
-        setToastMsg(`Added: ${newItem.name}`);
+        const latestLists: ItemList[] = latestRaw ? JSON.parse(latestRaw) : [];
+        const targetList = latestLists.find(l => l.id === currentListId);
+        if (targetList?.items.some(i => i.sku === resolvedSku)) {
+          setToastMsg(`Already in list: ${newItem.name}`);
+        } else {
+          const updated = latestLists.map(l =>
+            l.id === currentListId ? { ...l, items: [...l.items, newItem] } : l
+          );
+          await saveLists(updated, true);
+          setToastMsg(`Added: ${newItem.name}`);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
       }
     } catch (e: any) {
       setToastMsg(`Error: ${e.message}`);
@@ -508,9 +565,10 @@ export default function ListScreen() {
       }
 
       const price = parsePrice((result as any).sale_price || result.price);
+      const resolvedSku = result.sku || rawSku;
       const newItem: ListItem = {
         id: Date.now().toString(),
-        sku: result.sku || rawSku,
+        sku: resolvedSku,
         name: result.name || rawSku,
         price,
         rawPrice: (result as any).sale_price || result.price || '—',
@@ -520,14 +578,30 @@ export default function ListScreen() {
         inStock: result.inStock ?? null,
       };
 
+      const targetList = lists.find(l => l.id === currentListId);
+      if (targetList?.items.some(i => i.sku === resolvedSku)) {
+        const addAnyway = await new Promise<boolean>(resolve =>
+          Alert.alert(
+            'Already in List',
+            `"${newItem.name}" is already in this list. Add again?`,
+            [
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Add Again', onPress: () => resolve(true) },
+            ]
+          )
+        );
+        if (!addAnyway) return;
+      }
+
       const updated = lists.map(l =>
         l.id === currentListId
           ? { ...l, items: [...l.items, newItem] }
           : l
       );
-      await saveLists(updated);
+      await saveLists(updated, true);
       setAddSkuInput('');
       setShowAddItemModal(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Failed to fetch product.');
     } finally {
@@ -548,7 +622,7 @@ export default function ListScreen() {
               ? { ...l, items: l.items.filter(i => i.id !== itemId) }
               : l
           );
-          await saveLists(updated);
+          await saveLists(updated, true);
         },
       },
     ]);
@@ -561,7 +635,7 @@ export default function ListScreen() {
         ? { ...l, items: l.items.filter(i => i.id !== itemId) }
         : l
     );
-    await saveLists(updated);
+    await saveLists(updated, true);
   };
 
   // ── Bulk scan camera view ───────────────────────────────────────────────────
@@ -657,6 +731,13 @@ export default function ListScreen() {
           <Text style={[styles.totalLabel, { color: theme.text }]}>Pre-Tax Total</Text>
           <Text style={styles.totalValue}>{listTotal(currentList.items)}</Text>
           <TouchableOpacity
+            onPress={handleShareList}
+            style={{ padding: 4 }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="share-outline" size={22} color="#0173DF" />
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={handleRefreshPrices}
             disabled={refreshingPrices}
             style={{ padding: 4 }}
@@ -666,6 +747,26 @@ export default function ListScreen() {
               ? <ActivityIndicator size="small" color="#0173DF" />
               : <Ionicons name="refresh-outline" size={22} color="#0173DF" />
             }
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ── Search + sort bar ── */}
+      {currentList && currentList.items.length > 0 && (
+        <View style={styles.filterRow}>
+          <TextInput
+            style={[styles.filterInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
+            value={listSearchQuery}
+            onChangeText={setListSearchQuery}
+            placeholder="Search items..."
+            placeholderTextColor="#aaa"
+            autoCorrect={false}
+          />
+          <TouchableOpacity
+            style={[styles.sortBtn, sortOrder !== 'default' && { backgroundColor: '#0173DF' }]}
+            onPress={() => setShowSortModal(true)}
+          >
+            <Ionicons name="funnel-outline" size={18} color={sortOrder !== 'default' ? 'white' : theme.text} />
           </TouchableOpacity>
         </View>
       )}
@@ -683,9 +784,14 @@ export default function ListScreen() {
           <Text style={[styles.emptyText, { color: theme.text }]}>List is empty</Text>
           <Text style={{ color: '#aaa', marginTop: 6 }}>Tap "Add Item" to add a product by SKU</Text>
         </View>
+      ) : filteredAndSortedItems.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="search-outline" size={60} color="#aaa" />
+          <Text style={[styles.emptyText, { color: theme.text }]}>No matching items</Text>
+        </View>
       ) : (
         <ScrollView contentContainerStyle={styles.itemList}>
-          {currentList.items.map((item, idx) => (
+          {filteredAndSortedItems.map((item, idx) => (
             <Swipeable
               key={item.id}
               renderRightActions={() => (
@@ -890,6 +996,33 @@ export default function ListScreen() {
         </View>
       </Modal>
 
+      {/* ── Sort modal ── */}
+      <Modal visible={showSortModal} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Sort Items</Text>
+            {([
+              { key: 'default', label: 'Default (added order)' },
+              { key: 'price_asc', label: 'Price: Low to High' },
+              { key: 'price_desc', label: 'Price: High to Low' },
+              { key: 'name_asc', label: 'Name: A to Z' },
+            ] as const).map(option => (
+              <TouchableOpacity
+                key={option.key}
+                style={[styles.pickerRow, { borderBottomColor: theme.border }]}
+                onPress={() => { setSortOrder(option.key); setShowSortModal(false); }}
+              >
+                <Text style={[styles.pickerRowText, { color: theme.text }]}>{option.label}</Text>
+                {sortOrder === option.key && <Ionicons name="checkmark" size={18} color="#0173DF" />}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.closeBtn} onPress={() => setShowSortModal(false)}>
+              <Text style={styles.closeBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {backgroundChallenge ? (
         <View style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}>
           <WebView
@@ -999,4 +1132,7 @@ const styles = StyleSheet.create({
   swipeDeleteText: { color: 'white', fontSize: 12, fontWeight: '600' },
   deleteAllBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: '#C00' },
   deleteAllBtnText:{ color: '#C00', fontWeight: '600', fontSize: 14 },
+  filterRow:       { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 8, gap: 8 },
+  filterInput:     { flex: 1, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14 },
+  sortBtn:         { padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#ccc', alignItems: 'center', justifyContent: 'center' },
 });

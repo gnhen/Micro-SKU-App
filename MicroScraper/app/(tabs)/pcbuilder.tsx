@@ -983,49 +983,6 @@ export default function PCBuilderScreen() {
         </View>
       </Modal>
 
-      {/* SKU Input Modal */}
-      <Modal
-        visible={showSkuModal}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowSkuModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <ThemedText type="subtitle">Enter SKU Number</ThemedText>
-            <ThemedText style={[styles.skuModalSubtext, { color: colors.tabIconDefault, marginTop: 8, marginBottom: 16 }]}>
-              Enter the SKU from the product page or price tag
-            </ThemedText>
-            <TextInput
-              style={[styles.input, { borderColor: colors.border, color: colors.text }]}
-              placeholder="e.g., 123456"
-              placeholderTextColor={colors.tabIconDefault}
-              value={manualSku}
-              onChangeText={setManualSku}
-              keyboardType="numeric"
-              autoFocus
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, { backgroundColor: colors.border }]}
-                onPress={() => {
-                  setShowSkuModal(false);
-                  setManualSku('');
-                }}
-              >
-                <Text style={[styles.modalButtonText, { color: colors.text }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, { backgroundColor: colors.tint }]}
-                onPress={handleAddManualSku}
-              >
-                <Text style={[styles.modalButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Add</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
       {/* Hidden WebView for scraping */}
       {scrapingCategory && (
         <View style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}>

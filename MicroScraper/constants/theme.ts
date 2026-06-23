@@ -19,6 +19,12 @@ export const Colors = {
     card: '#f8f9fa',
     border: '#e1e4e8',
     notification: '#ff6b6b',
+    priceRed: '#C00',
+    inStockGreen: '#00AA00',
+    lowStockOrange: '#E07000',
+    starGold: '#FFB800',
+    subtleText: '#555',
+    memberSavings: '#00AA00',
   },
   dark: {
     text: '#ECEDEE',
@@ -30,6 +36,12 @@ export const Colors = {
     card: '#1f2428',
     border: '#30363d',
     notification: '#ff6b6b',
+    priceRed: '#FF6B6B',
+    inStockGreen: '#4CAF50',
+    lowStockOrange: '#FFA040',
+    starGold: '#FFB800',
+    subtleText: '#AAAAAA',
+    memberSavings: '#4CAF50',
   },
 };
 

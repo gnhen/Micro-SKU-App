@@ -1,4 +1,5 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, StatusBar, Alert, TextInput } from 'react-native';
+import { Text, ScrollView, StyleSheet, TouchableOpacity, StatusBar, Alert, TextInput, RefreshControl } from 'react-native';
+import SelectableText from '@/components/SelectableText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import React, { useState } from 'react';
@@ -22,11 +23,12 @@ export default function HistoryScreen() {
 
   const [history, setHistory] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
   useFocusEffect(
-    () => {
+    React.useCallback(() => {
       loadHistory();
-    }
+    }, [])
   );
 
   const loadHistory = async () => {
@@ -38,6 +40,12 @@ export default function HistoryScreen() {
     } catch (error) {
       console.error('Error loading history:', error);
     }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadHistory();
+    setRefreshing(false);
   };
 
   const clearHistory = async () => {
@@ -86,7 +94,10 @@ export default function HistoryScreen() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
         <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
-        <ScrollView contentContainerStyle={[styles.scrollContent, { backgroundColor: colors.background }]}>
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { backgroundColor: colors.background }]}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.tint} />}
+        >
           <Text style={[styles.header, { color: colors.text }]}>Search History</Text>
 
           <TextInput
@@ -124,10 +135,10 @@ export default function HistoryScreen() {
                     style={[styles.historyItem, { backgroundColor: colors.card, borderColor: colors.border }]}
                     onPress={() => handleHistoryItemPress(item.sku)}
                   >
-                    <Text selectable style={[styles.itemName, { color: colors.text }]}>{item.name}</Text>
-                    <Text selectable style={[styles.itemSku, { color: colors.text }]}>SKU: {item.sku}</Text>
-                    <Text selectable style={[styles.itemPrice, { color: '#C00' }]}>{item.price}</Text>
-                    <Text selectable style={[styles.itemDate, { color: colors.text }]}>{new Date(item.date).toLocaleDateString()}</Text>
+                    <SelectableText style={[styles.itemName, { color: colors.text }]}>{item.name}</SelectableText>
+                    <SelectableText style={[styles.itemSku, { color: colors.text }]}>SKU: {item.sku}</SelectableText>
+                    <SelectableText style={[styles.itemPrice, { color: '#C00' }]}>{item.price}</SelectableText>
+                    <SelectableText style={[styles.itemDate, { color: colors.text }]}>{new Date(item.date).toLocaleDateString()}</SelectableText>
                   </TouchableOpacity>
                 </Swipeable>
               ))}

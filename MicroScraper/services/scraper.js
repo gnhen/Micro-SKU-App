@@ -122,7 +122,6 @@ const extractReviews = (html) => {
     }
   }
 
-  console.log('Extracted reviews:', { rating, reviewCount });
   return { rating, reviewCount };
 };
 
@@ -189,7 +188,6 @@ const extractProInstallation = (html) => {
     }
   }
   
-  console.log('Extracted installations:', installations);
   return installations;
 };
 
@@ -217,7 +215,6 @@ const extractProtectionPlans = (html) => {
     }
   }
   
-  console.log('Extracted protection plans:', plans);
   return plans;
 };
 
@@ -353,8 +350,6 @@ const extractStock = (html, storeId) => {
     // non-fatal: leave stock as-is
   }
 
-  console.log('Extracted stock:', { stockText, stock, inStock });
-  console.log('Stock match details:', stockMatch ? 'Pattern matched' : 'Pattern did not match');
   return { stockText, stock, inStock };
 };
 
@@ -804,7 +799,6 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
             status: productResponse.status,
           });
         }
-        console.log(`[fetchProductBySku] Product HTML length: ${productHtml.length}`);
     }
 
     let actualSku = null;
@@ -813,11 +807,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
                      productHtml.match(/['"]sku['"]\s*:\s*['"]?(\d+)['"]?/i);
     if (skuMatch && skuMatch[1]) {
       actualSku = skuMatch[1].trim();
-      console.log('Extracted actual SKU from product page:', actualSku);
-      console.log('Searched SKU:', sku);
-      
       if (isUrlInput) {
-         console.log('URL search detected, adopting page SKU:', actualSku);
          sku = actualSku;
       } else if (actualSku !== sku) {
         if (expectedSearchSku.length > 10 && pageContainsUpc(productHtml, sku)) {
