@@ -102,7 +102,7 @@ export default function ScanScreen() {
   const [zoomImageUrls, setZoomImageUrls] = useState<string[]>([]);
   const [compingFallbackTried, setCompingFallbackTried] = useState(false);
   const [singleImageFallbackTried, setSingleImageFallbackTried] = useState(false);
-  const [scannerEnabled, setScannerEnabled] = useState(true);
+  const [scannerEnabled, setScannerEnabledState] = useState(true);
   const [addingToBuilder, setAddingToBuilder] = useState(false);
   const [detectedCategory, setDetectedCategory] = useState(null);
   const [addingToList, setAddingToList] = useState(false);
@@ -115,6 +115,13 @@ export default function ScanScreen() {
   const mapMinScaleRef = useRef<number>(1);
   const searchRequestRef = useRef<number>(0);
   const prevDataRef = useRef<any>(null);
+  // Ref mirrors scannerEnabled so onBarcodeScanned can gate re-entrant calls synchronously,
+  // since expo-camera fires the callback faster than React state updates re-render.
+  const scannerEnabledRef = useRef<boolean>(true);
+  const setScannerEnabled = (value: boolean) => {
+    scannerEnabledRef.current = value;
+    setScannerEnabledState(value);
+  };
   const resultOpacity = useSharedValue(0);
   const resultTranslateY = useSharedValue(18);
   const resultCardStyle = useAnimatedStyle(() => ({
@@ -523,10 +530,11 @@ export default function ScanScreen() {
       const extractedSpecs = extractComponentSpecs(category, specsArray, data.name);
 
       // Determine price
-      const price = data.sale_price || 
-                   (data.price ? parseFloat(data.price.replace(/[$,]/g, '')) : null);
-      const salePrice = data.sale_price && data.price !== data.sale_price ? 
-                       parseFloat(data.sale_price.replace(/[$,]/g, '')) : null;
+      const parsedPrice = data.price ? parseFloat(data.price.replace(/[$,]/g, '')) : NaN;
+      const price = data.sale_price || (isNaN(parsedPrice) ? null : parsedPrice);
+      const parsedSalePrice = data.sale_price && data.price !== data.sale_price ?
+                       parseFloat(data.sale_price.replace(/[$,]/g, '')) : NaN;
+      const salePrice = isNaN(parsedSalePrice) ? null : parsedSalePrice;
 
       // Add component to database
       const componentData = {
@@ -1033,12 +1041,14 @@ export default function ScanScreen() {
   };
 
   const handleBarcodeScanned = ({ data }) => {
-    // Disable scanner immediately to prevent multiple scans
-    if (!scannerEnabled) {
+    // Disable scanner immediately to prevent multiple scans. Checked against the ref
+    // (not the `scannerEnabled` state) because expo-camera can fire this callback several
+    // times before React re-renders with the updated state, letting duplicates slip through.
+    if (!scannerEnabledRef.current) {
       console.log('[handleBarcodeScanned] Scanner disabled, ignoring scan');
       return;
     }
-    
+
     setScannerEnabled(false);
     console.log('[handleBarcodeScanned] Raw barcode data:', data);
     const processedData = processBarcodeData(data);

@@ -464,8 +464,15 @@ export default function ListScreen() {
           updatedItems.push(item);
         }
       }
-      const updated = lists.map(l =>
-        l.id === currentListId ? { ...l, items: updatedItems } : l
+      // Merge refreshed prices onto a fresh copy from storage, not the render-time `lists`,
+      // since this loop can take several seconds and items may have been added/removed meanwhile.
+      const refreshedBySku = new Map(updatedItems.map(item => [item.sku, item]));
+      const latestRaw = await AsyncStorage.getItem(STORAGE_KEY);
+      const latestLists: ItemList[] = latestRaw ? JSON.parse(latestRaw) : lists;
+      const updated = latestLists.map(l =>
+        l.id === currentListId
+          ? { ...l, items: l.items.map(item => refreshedBySku.get(item.sku) ?? item) }
+          : l
       );
       await saveLists(updated);
     } finally {

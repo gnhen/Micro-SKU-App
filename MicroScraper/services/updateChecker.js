@@ -35,43 +35,40 @@ export const checkForUpdates = async (silentOnUpToDate = false) => {
     const releaseData = await response.json();
     const latestVersion = releaseData.tag_name; // e.g., "v0.1.2"
     const currentVersion = `v${versionInfo.version}`; // e.g., "v0.1.1"
-    
-    if (silentOnUpToDate) {
-      return latestVersion;
-    }
-    
+
     // Check if latestVersion is actually newer than currentVersion
     // compareVersions returns -1 if current < latest
     const comparison = compareVersions(currentVersion, latestVersion);
-    
-  
+
     if (comparison >= 0) {
       console.log('[Update] App is up to date.');
       if (!silentOnUpToDate) {
         Alert.alert(
-          'Already up to date', 
+          'Already up to date',
           `You're running the latest version (${currentVersion}).`
         );
       }
-      return;
+      return latestVersion;
     }
-    
+
     // Update is available
     Alert.alert(
       'Update Available',
       `A new version (${latestVersion}) is available!\n\nCurrent version: ${currentVersion}\n\nWould you like to view the release?`,
       [
-        { 
-          text: 'Cancel', 
-          style: 'cancel' 
+        {
+          text: 'Cancel',
+          style: 'cancel'
         },
-        { 
-          text: 'Update', 
+        {
+          text: 'Update',
           onPress: () => Linking.openURL(GITHUB_RELEASE_URL)
         }
       ]
     );
-    
+
+    return latestVersion;
+
   } catch (error) {
     console.error('[Update] Error checking for updates:', error);
     // Optional: Only show error alert if you want the user to know the check failed

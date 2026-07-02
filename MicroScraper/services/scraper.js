@@ -5,16 +5,19 @@ let lastRequestTime = 0;
 const MIN_REQUEST_INTERVAL = 2000; // 2 seconds between requests
 
 const waitForRateLimit = async (onStatus) => {
+  // Reserve this call's slot synchronously (before any `await`) so concurrent callers
+  // each claim a distinct, properly spaced slot instead of racing on a stale lastRequestTime.
   const now = Date.now();
-  const timeSinceLastRequest = now - lastRequestTime;
-  if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
-    const waitTime = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
+  const nextAllowed = Math.max(now, lastRequestTime + MIN_REQUEST_INTERVAL);
+  const waitTime = nextAllowed - now;
+  lastRequestTime = nextAllowed;
+
+  if (waitTime > 0) {
     console.log(`[Rate Limit] Waiting ${waitTime}ms before next request`);
     if (onStatus) onStatus(`Rate limit: waiting ${waitTime}ms...`);
     await new Promise(resolve => setTimeout(resolve, waitTime));
     if (onStatus) onStatus('');
   }
-  lastRequestTime = Date.now();
 };
 
 const HEADERS = {
@@ -564,11 +567,15 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
        const urlMatch = sku.match(/product\/(\d+)\//i);
        if (urlMatch && urlMatch[1]) {
          productId = urlMatch[1];
-         const separator = sku.includes('?') ? '&' : '?';
-         productUrl = `${sku}${separator}storeid=${storeId}`;
+         if (/storeid=/i.test(sku)) {
+           productUrl = sku;
+         } else {
+           const separator = sku.includes('?') ? '&' : '?';
+           productUrl = `${sku}${separator}storeid=${storeId}`;
+         }
          console.log(`Detected valid Micro Center product URL. ID: ${productId}`);
        }
-    } 
+    }
     
     if (!productId && (!sku || sku.trim().length < 1)) {
       console.log('[fetchProductBySku] Invalid SKU - empty input');
@@ -599,7 +606,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
           }
         }
       } else {
-        searchUrl = `${BASE_URL}/search/search_results.aspx?Ntt=${sku}&searchButton=search&storeid=${storeId}`;
+        searchUrl = `${BASE_URL}/search/search_results.aspx?Ntt=${encodeURIComponent(sku)}&searchButton=search&storeid=${storeId}`;
       }
       console.log(`[fetchProductBySku] Fetching search URL: ${searchUrl}`);
       

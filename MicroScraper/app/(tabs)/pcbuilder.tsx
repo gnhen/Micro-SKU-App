@@ -32,6 +32,50 @@ import {
   getCachedComponents,
   clearCache,
 } from '@/services/pcBuilderWebViewScraper';
+import { initDatabase, getComponentsByCategory } from '@/services/database';
+
+// Maps pcBuilder category ids to the category names used by the scanned-components database
+const SCANNED_CATEGORY_MAP = {
+  cpu: 'cpu',
+  gpu: 'gpu',
+  motherboard: 'motherboard',
+  ram: 'ram',
+  storage: 'storage',
+  psu: 'psu',
+  case: 'case',
+  cpuCooler: 'cooler',
+  fans: 'case_fans',
+  os: 'os',
+};
+
+const getScannedComponents = async (categoryId: string) => {
+  const dbCategory = SCANNED_CATEGORY_MAP[categoryId];
+  if (!dbCategory) return [];
+
+  try {
+    await initDatabase();
+    const rows = await getComponentsByCategory(dbCategory);
+    return rows.map((row: any) => ({
+      sku: row.sku,
+      name: row.name,
+      price: row.sale_price ?? row.price ?? null,
+      image: row.image_url || null,
+      url: row.url || null,
+      brand: row.brand || null,
+      scanned: true,
+    }));
+  } catch (error) {
+    console.error('Error loading scanned components:', error);
+    return [];
+  }
+};
+
+// Merge freshly scraped components with locally scanned ones, preferring the scraped copy on SKU collision
+const mergeScannedComponents = (primary = [], scanned = []) => {
+  const seenSkus = new Set(primary.filter(c => c.sku).map(c => c.sku));
+  const extras = scanned.filter(c => c.sku && !seenSkus.has(c.sku));
+  return [...primary, ...extras];
+};
 
 export default function PCBuilderScreen() {
   const colorScheme = useColorScheme();
@@ -58,6 +102,7 @@ export default function PCBuilderScreen() {
   const webViewRef = useRef(null);
   const skuWebViewRef = useRef(null);
   const isChallengeActiveRef = useRef(false);
+  const scannedComponentsRef = useRef([]);
   const router = useRouter();
 
   const runChallengeFlow = async (url: string, sku: string = '') => {
@@ -130,16 +175,16 @@ export default function PCBuilderScreen() {
         // Use bundle prices if applied, otherwise use regular prices
         const totalPrice = build.components?.reduce((sum, c) => {
           const price = c.bundlePrice || c.sale_price || c.price || 0;
-          // Handle both numeric and string prices (like 'N/A')
-          const numericPrice = typeof price === 'number' ? price : 0;
+          // Handle both numeric and string prices (like 'N/A'), and guard against NaN
+          const numericPrice = Number.isFinite(price) ? price : 0;
           return sum + numericPrice;
         }, 0) || 0;
-        
+
         // Calculate original price for comparison
         const originalTotalPrice = build.components?.reduce((sum, c) => {
           const price = c.originalPrice || c.sale_price || c.price || 0;
-          // Handle both numeric and string prices (like 'N/A')
-          const numericPrice = typeof price === 'number' ? price : 0;
+          // Handle both numeric and string prices (like 'N/A'), and guard against NaN
+          const numericPrice = Number.isFinite(price) ? price : 0;
           return sum + numericPrice;
         }, 0) || 0;
         
@@ -219,17 +264,21 @@ export default function PCBuilderScreen() {
 
   const handleSelectComponent = async (category) => {
     setSelectedCategory(category);
-    
+
+    const scanned = await getScannedComponents(category.id);
+    scannedComponentsRef.current = scanned;
+
     // Check cache first
     const cached = getCachedComponents(category.id);
     if (cached && cached.length > 0) {
-      setAvailableComponents(cached);
+      setAvailableComponents(mergeScannedComponents(cached, scanned));
       setShowComponentModal(true);
       return;
     }
-    
-    // Start WebView scraping
-    setLoadingComponents(true);
+
+    // Show any scanned components immediately while fresh ones load from Microcenter
+    setAvailableComponents(scanned);
+    setLoadingComponents(scanned.length === 0);
     setShowComponentModal(true);
     setScrapingCategory(category.id);
   };
@@ -765,7 +814,7 @@ export default function PCBuilderScreen() {
                             </View>
                           ) : (
                             <ThemedText style={styles.componentPrice}>
-                              {typeof component.price === 'number' ? `$${component.price.toFixed(2)}` : (component.price || 'N/A')}
+                              {Number.isFinite(component.price) ? `$${component.price.toFixed(2)}` : (component.price || 'N/A')}
                             </ThemedText>
                           )}
                         </View>
@@ -913,12 +962,11 @@ export default function PCBuilderScreen() {
                   )}
                 </View>
                 <View style={styles.componentPriceContainer}>
-                  {item.price != null && (
+                  {Number.isFinite(item.price) ? (
                     <ThemedText style={styles.componentItemPrice}>
                       ${item.price.toFixed(2)}
                     </ThemedText>
-                  )}
-                  {item.price == null && (
+                  ) : (
                     <ThemedText style={[styles.componentItemPrice, { opacity: 0.5 }]}>
                       ?
                     </ThemedText>
@@ -1026,7 +1074,7 @@ export default function PCBuilderScreen() {
               } catch (e) {}
 
               handleWebViewMessage(event, scrapingCategory, (components) => {
-                setAvailableComponents(components);
+                setAvailableComponents(mergeScannedComponents(components, scannedComponentsRef.current));
                 setLoadingComponents(false);
                 setScrapingCategory(null);
               });

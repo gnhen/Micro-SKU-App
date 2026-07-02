@@ -1,0 +1,14 @@
+# Accidental root-level installs (the real project lives in MicroScraper/)
+/node_modules/
+/package.json
+/package-lock.json
+
+# Xcode archive/export artifacts
+*.ipa
+Packaging.log
+DistributionSummary.plist
+ExportOptions.plist
+
+# Editor/OS
+.idea/
+.DS_Store

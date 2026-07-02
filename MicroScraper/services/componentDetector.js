@@ -14,6 +14,15 @@ export const detectComponentCategory = (productName, specs = []) => {
   const specsText = specs.map(s => `${s.label} ${s.value}`.toLowerCase()).join(' ');
   const fullText = `${name} ${specsText}`;
 
+  // GPU Detection (checked before CPU: GPU spec sheets almost always list "CUDA Cores" or
+  // "Stream Processors", which would otherwise false-match the CPU detector's \bcores?\b check)
+  if (
+    /\b(graphics?.?card|gpu|geforce|radeon|rtx|gtx|rx\s*\d+|arc)\b/i.test(name) ||
+    /\b(vram|cuda.?cores|stream.?processors)\b/i.test(specsText)
+  ) {
+    return 'gpu';
+  }
+
   // CPU Detection
   if (
     /\b(processor|cpu|core i[3579]|ryzen|threadripper|xeon)\b/i.test(name) ||
@@ -36,14 +45,6 @@ export const detectComponentCategory = (productName, specs = []) => {
     /\b(cas.?latency|memory.?speed|mhz.*memory)\b/i.test(specsText)
   ) {
     return 'ram';
-  }
-
-  // GPU Detection
-  if (
-    /\b(graphics?.?card|gpu|geforce|radeon|rtx|gtx|rx\s*\d+|arc)\b/i.test(name) ||
-    /\b(vram|cuda.?cores|stream.?processors)\b/i.test(specsText)
-  ) {
-    return 'gpu';
   }
 
   // Storage Detection
