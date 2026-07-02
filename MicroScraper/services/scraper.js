@@ -1,4 +1,5 @@
 const BASE_URL = 'https://www.microcenter.com';
+const CART_URL = 'https://cart.microcenter.com';
 
 // Rate limiting to avoid 403 errors
 let lastRequestTime = 0;
@@ -57,6 +58,132 @@ const getAjaxHeaders = (referer = `${BASE_URL}/`) => ({
   'Origin': BASE_URL,
   'Referer': referer,
 });
+
+// Headers for the cart.microcenter.com form POST that removes our temporary line item.
+const getCartFormHeaders = () => ({
+  ...getRequestHeaders(),
+  'Content-Type': 'application/x-www-form-urlencoded',
+  'Origin': CART_URL,
+  'Referer': `${CART_URL}/`,
+});
+
+// A cart line item leaks the exact on-hand count via QuantityInStock. When more than one
+// item is in the session cart, match ours by SKU (or product id) instead of guessing.
+const cartItemMatchesProduct = (item, sku, productId) => {
+  if (!item || typeof item !== 'object') return false;
+  const wantSku = String(sku);
+  const wantPid = String(productId);
+  for (const key of Object.keys(item)) {
+    const normalizedKey = key.toLowerCase();
+    const value = String(item[key]);
+    if (normalizedKey === 'sku' && value === wantSku) return true;
+    if ((normalizedKey === 'productid' || normalizedKey === 'productidnumber' || normalizedKey === 'id') && value === wantPid) return true;
+  }
+  return false;
+};
+
+// Best-effort removal of the line item we added, so the trick leaves the cart as it found it.
+// The anti-forgery token and item identifiers are rendered into the cart HTML.
+const removeCartLineItem = async (cartHtml, onStatus) => {
+  try {
+    const removeMatch = cartHtml.match(
+      /action="\/cart\/cartremove"[\s\S]*?__RequestVerificationToken[^>]*value="([^"]+)"[\s\S]*?name="ItemId"[^>]*value="(\d+)"[\s\S]*?name="CompositeKey"[^>]*value="([^"]+)"/i
+    );
+    if (!removeMatch) return;
+
+    await waitForRateLimit(onStatus);
+    const body = new URLSearchParams({
+      __RequestVerificationToken: removeMatch[1],
+      ItemId: removeMatch[2],
+      CompositeKey: removeMatch[3],
+    }).toString();
+
+    await fetch(`${CART_URL}/cart/cartremove`, {
+      method: 'POST',
+      headers: getCartFormHeaders(),
+      body,
+    });
+  } catch (error) {
+    // Non-fatal: a lingering cart item doesn't affect stock reads (we match by SKU).
+    console.log('[resolveExactStock] Cart cleanup failed:', error?.message || error);
+  }
+};
+
+// Recover the real per-store on-hand quantity for a product whose visible stock is capped
+// at "25+ IN STOCK". Adds one unit to the session cart, reads the leaked QuantityInStock,
+// then removes the line item. Relies on the session cookies set by the just-fetched product
+// page (the native fetch cookie store spans www/cart just like the reference curl jar).
+// Returns the exact quantity (>= 0), or null if it couldn't be determined.
+export const resolveExactStock = async ({ productId, sku, storeId, refererUrl, onStatus } = {}) => {
+  const normalizedStoreId = String(storeId || '').replace(/\D/g, '');
+  if (!productId || !sku || !normalizedStoreId) return null;
+
+  try {
+    // 1. Add one unit to the session cart.
+    await waitForRateLimit(onStatus);
+    if (onStatus) onStatus('Checking exact stock...');
+    const addBody = new URLSearchParams({
+      store_id: String(parseInt(normalizedStoreId, 10)),
+      sku: String(sku),
+      productID: String(productId),
+      na: 'false',
+      cartType: 'instore',
+      buyItNow: 'false',
+      ajax: 'true',
+      productIDs: '',
+      serviceSkuIDs: '',
+      serviceplan: '',
+      rf: '',
+      qty: '1',
+      ADDtoCART: 'ADD TO CART',
+    }).toString();
+
+    const addResponse = await fetch(`${BASE_URL}/store/add_productAjax.aspx?ismini=false`, {
+      method: 'POST',
+      headers: getAjaxHeaders(refererUrl || `${BASE_URL}/`),
+      body: addBody,
+    });
+    if (!addResponse.ok) return null;
+
+    const addText = await addResponse.text();
+    const addedMatch = addText.match(/cartAjaxQty">(\d+)/);
+    // If the add was refused, keep the "25+" fallback rather than reporting a bogus 0.
+    if (!addedMatch || addedMatch[1] === '0') return null;
+
+    // 2. The cart page leaks the exact on-hand quantity for every line item.
+    await waitForRateLimit(onStatus);
+    const cartResponse = await fetch(CART_URL, { headers: getRequestHeaders() });
+    let quantity = null;
+    let cartHtml = '';
+
+    if (cartResponse.ok) {
+      cartHtml = await cartResponse.text();
+      const cartItemsMatch = cartHtml.match(/var\s+cartItems\s*=\s*(\[[\s\S]*?\]);/);
+      if (cartItemsMatch && cartItemsMatch[1]) {
+        try {
+          const items = JSON.parse(cartItemsMatch[1]);
+          if (Array.isArray(items) && items.length > 0) {
+            const target = items.find((it) => cartItemMatchesProduct(it, sku, productId)) || items[0];
+            const qoh = Number(target && target.QuantityInStock);
+            if (Number.isFinite(qoh)) quantity = Math.max(0, qoh);
+          }
+        } catch (error) {
+          console.log('[resolveExactStock] Could not parse cartItems:', error?.message || error);
+        }
+      }
+    }
+
+    // 3. Clean up the temporary line item.
+    if (cartHtml) await removeCartLineItem(cartHtml, onStatus);
+    if (onStatus) onStatus('');
+
+    return quantity;
+  } catch (error) {
+    console.log('[resolveExactStock] Unable to resolve exact stock:', error?.message || error);
+    if (onStatus) onStatus('');
+    return null;
+  }
+};
 
 const CHALLENGE_PATTERNS = [
   /just a moment/i,
@@ -553,7 +680,7 @@ const extractSpecs = (html) => {
   return specs;
 };
 
-export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
+export const fetchProductBySku = async (sku, storeId = '071', onStatus, options = {}) => {
   try {
     console.log(`[fetchProductBySku] Starting fetch for SKU: ${sku}, storeId: ${storeId}`);
     let productId = null;
@@ -994,6 +1121,29 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
     const protectionPlans = extractProtectionPlans(productHtml);
     
     const stockInfo = extractStock(productHtml, storeId);
+    // Micro Center caps the visible count at "25+ IN STOCK". Only when we hit that cap do we
+    // escalate to the cart trick to recover the exact on-hand quantity for this store.
+    let stockResolving = false;
+    if (productId && /^\s*25\+/.test(String(stockInfo.stockText || ''))) {
+      if (options.deferStockResolution) {
+        // Let the caller resolve the exact number in the background (via resolveExactStock)
+        // so the rest of the product data can render immediately.
+        stockResolving = true;
+      } else {
+        const exactStock = await resolveExactStock({
+          productId,
+          sku,
+          storeId,
+          refererUrl: productUrl,
+          onStatus,
+        });
+        if (Number.isFinite(exactStock)) {
+          stockInfo.stock = exactStock;
+          stockInfo.inStock = exactStock > 0;
+          stockInfo.stockText = exactStock > 0 ? `${exactStock} in Stock` : '0 in Stock';
+        }
+      }
+    }
     const openBoxText = extractOpenBoxText(productHtml);
     const limitPerHousehold = extractLimitPerHousehold(productHtml);
     const tieredPricing = extractTieredPricing(productHtml);
@@ -1073,6 +1223,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus) => {
       stockText: stockInfo.stockText,
       stock: stockInfo.stock,
       inStock: stockInfo.inStock,
+      stockResolving,
       openBoxText,
       limitPerHousehold,
       tieredPricing,

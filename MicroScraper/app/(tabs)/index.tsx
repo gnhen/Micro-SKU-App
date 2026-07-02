@@ -9,11 +9,11 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
-import { fetchProductBySku, fetchTextSearch, setScraperUserAgent } from '../../services/scraper';
+import { fetchProductBySku, fetchTextSearch, setScraperUserAgent, resolveExactStock } from '../../services/scraper';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { GestureHandlerRootView, PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS, withRepeat, withTiming, withSequence, withDelay, Easing } from 'react-native-reanimated';
 import { WebView } from 'react-native-webview';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
@@ -81,6 +81,45 @@ const processBarcodeData = (scannedData) => {
   return trimmedData;
 };
 
+// A single dot that bounces on a continuous loop, offset by `delay` so a row of them
+// ripples. Used as the placeholder while the exact stock count resolves in the background.
+function BouncingDot({ delay, color }: { delay: number; color: string }) {
+  const translateY = useSharedValue(0);
+
+  useEffect(() => {
+    translateY.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(-5, { duration: 300, easing: Easing.out(Easing.quad) }),
+          withTiming(0, { duration: 300, easing: Easing.in(Easing.quad) })
+        ),
+        -1,
+        false
+      )
+    );
+  }, []);
+
+  const style = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
+
+  return (
+    <Animated.Text style={[{ color, fontSize: 14, fontWeight: '600' }, style]}>.</Animated.Text>
+  );
+}
+
+// "..." bouncing dots followed by " in Stock", shown in the in-stock green while the
+// real per-store quantity is being fetched.
+function BouncingStockDots({ color }: { color: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+      <BouncingDot delay={0} color={color} />
+      <BouncingDot delay={150} color={color} />
+      <BouncingDot delay={300} color={color} />
+      <Text style={{ color, fontSize: 14, fontWeight: '600' }}> in Stock</Text>
+    </View>
+  );
+}
+
 export default function ScanScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -122,6 +161,9 @@ export default function ScanScreen() {
     scannerEnabledRef.current = value;
     setScannerEnabledState(value);
   };
+  // Tracks the productId whose exact stock is currently being resolved in the background,
+  // so the resolver effect doesn't fire twice for the same in-flight product.
+  const stockResolveRef = useRef<string | null>(null);
   const resultOpacity = useSharedValue(0);
   const resultTranslateY = useSharedValue(18);
   const resultCardStyle = useAnimatedStyle(() => ({
@@ -444,6 +486,44 @@ export default function ScanScreen() {
     }
     prevDataRef.current = data;
   }, [data]);
+
+  // When a product loads with a capped "25+" stock, the rest of its data is shown immediately
+  // and the exact per-store quantity is resolved here in the background (the cart trick). The
+  // stock line shows bouncing dots until this fills in the real number.
+  useEffect(() => {
+    if (!data?.stockResolving || !data?.productId) return;
+    const productId = String(data.productId);
+    if (stockResolveRef.current === productId) return;
+    stockResolveRef.current = productId;
+
+    const targetSku = data.sku;
+    const refererUrl = data.url;
+    let active = true;
+
+    (async () => {
+      try {
+        const storeId = (await AsyncStorage.getItem('storeId')) || '071';
+        const exact = await resolveExactStock({ productId, sku: targetSku, storeId, refererUrl });
+        if (!active) return;
+        setData((prev: any) => {
+          if (!prev || String(prev.productId) !== productId) return prev;
+          const hasExact = Number.isFinite(exact);
+          return {
+            ...prev,
+            stockResolving: false,
+            stock: hasExact ? exact : prev.stock,
+            inStock: hasExact ? exact > 0 : prev.inStock,
+            // On failure, fall back to whatever the scrape reported (the "25+ in Stock" text).
+            stockText: hasExact ? (exact > 0 ? `${exact} in Stock` : '0 in Stock') : prev.stockText,
+          };
+        });
+      } finally {
+        if (stockResolveRef.current === productId) stockResolveRef.current = null;
+      }
+    })();
+
+    return () => { active = false; };
+  }, [data?.productId, data?.stockResolving]);
 
   const theme = {
     bg: colors.background,
@@ -867,7 +947,7 @@ export default function ScanScreen() {
       const storeId = await AsyncStorage.getItem('storeId') || '071';
       const result: any = await fetchProductBySku(targetSku, storeId, (msg) => {
         if (searchRequestRef.current === thisRequestId) setLoadingStatus(msg);
-      });
+      }, { deferStockResolution: true });
 
       // A newer search has started — discard this stale response
       if (searchRequestRef.current !== thisRequestId) {
@@ -1310,6 +1390,10 @@ export default function ScanScreen() {
           <View style={styles.priceRow}>
             <SelectableText style={[styles.price, { color: theme.priceRed }]}>{data.price}</SelectableText>
             {(() => {
+              // Exact quantity still resolving in the background — show bouncing "... in Stock".
+              if (data.stockResolving) {
+                return <BouncingStockDots color={theme.inStockGreen} />;
+              }
               const rawStockText = String(data.stockText ?? '').trim();
               const qtyMatch = rawStockText.match(/^(\d+)/);
               const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : null;

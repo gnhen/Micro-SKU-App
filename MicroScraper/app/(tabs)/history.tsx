@@ -1,5 +1,4 @@
 import { Text, ScrollView, StyleSheet, TouchableOpacity, StatusBar, Alert, TextInput, RefreshControl } from 'react-native';
-import SelectableText from '@/components/SelectableText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import React, { useState } from 'react';
@@ -135,10 +134,12 @@ export default function HistoryScreen() {
                     style={[styles.historyItem, { backgroundColor: colors.card, borderColor: colors.border }]}
                     onPress={() => handleHistoryItemPress(item.sku)}
                   >
-                    <SelectableText style={[styles.itemName, { color: colors.text }]}>{item.name}</SelectableText>
-                    <SelectableText style={[styles.itemSku, { color: colors.text }]}>SKU: {item.sku}</SelectableText>
-                    <SelectableText style={[styles.itemPrice, { color: '#C00' }]}>{item.price}</SelectableText>
-                    <SelectableText style={[styles.itemDate, { color: colors.text }]}>{new Date(item.date).toLocaleDateString()}</SelectableText>
+                    {/* Plain, non-interactive Text so a tap anywhere on the row triggers the
+                        item load instead of being swallowed by text-selection handling. */}
+                    <Text pointerEvents="none" style={[styles.itemName, { color: colors.text }]}>{item.name}</Text>
+                    <Text pointerEvents="none" style={[styles.itemSku, { color: colors.text }]}>SKU: {item.sku}</Text>
+                    <Text pointerEvents="none" style={[styles.itemPrice, { color: '#C00' }]}>{item.price}</Text>
+                    <Text pointerEvents="none" style={[styles.itemDate, { color: colors.text }]}>{new Date(item.date).toLocaleDateString()}</Text>
                   </TouchableOpacity>
                 </Swipeable>
               ))}
