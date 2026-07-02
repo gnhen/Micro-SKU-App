@@ -12,3 +12,5 @@ ExportOptions.plist
 # Editor/OS
 .idea/
 .DS_Store
+
+.claude

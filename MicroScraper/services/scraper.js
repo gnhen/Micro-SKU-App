@@ -759,14 +759,14 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus, options 
       
       if (response.url && response.url.includes('/product/')) {
         console.log('Search redirected to product page:', response.url);
-        
+        const htmlText = searchHtmlText ?? await response.text();
+
         const idMatch = response.url.match(/product\/(\d+)\//);
         if (idMatch) {
             productId = idMatch[1];
         } else {
-          const htmlText = searchHtmlText ?? await response.text();
-            const match = htmlText.match(/['"]productId['"]\s*:\s*['"](\d+)['"]/i) || 
-                          htmlText.match(/data-id=['"](\d+)['"]/i) || 
+            const match = htmlText.match(/['"]productId['"]\s*:\s*['"](\d+)['"]/i) ||
+                          htmlText.match(/data-id=['"](\d+)['"]/i) ||
                           htmlText.match(/<input[^>]*name=['"]productId['"][^>]*value=['"](\d+)['"]/i);
             if (match) productId = match[1];
         }
@@ -774,10 +774,29 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus, options 
         if (!productId) {
              throw new Error("Product ID not found on redirected page");
         }
-        
+
         const cleanBaseUrl = response.url.split('?')[0];
         productUrl = `${cleanBaseUrl}?storeid=${storeId}`;
         console.log(`Cleaning redirected URL to: ${productUrl}`);
+
+        // The redirected response body already IS the product page. When it was rendered
+        // for the requested store (the page's dataLayer carries storeNum), reuse it and
+        // skip the second rate-limited fetch of the exact same page.
+        if (isChallengePage(htmlText, response.url)) {
+          return buildChallengeRequiredError({
+            sku: originalSku,
+            storeId,
+            url: response.url,
+            stage: 'product',
+            status: response.status,
+          });
+        }
+        const renderedStoreMatch = htmlText.match(/['"]storeNum['"]\s*:\s*['"](\d+)['"]/i);
+        const wantedStore = parseInt(String(storeId).replace(/\D/g, ''), 10);
+        if (renderedStoreMatch && parseInt(renderedStoreMatch[1], 10) === wantedStore) {
+          console.log(`[fetchProductBySku] Redirected page already rendered for store ${storeId} — reusing it`);
+          productHtml = htmlText;
+        }
       } else {
         const htmlText = searchHtmlText ?? await response.text();
 
@@ -1150,7 +1169,16 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus, options 
     const memberSaving = extractMemberSaving(mainProductHtml);
     
     const location = extractLocation(productHtml);
-    const deck = await fetchProductDeck(productId, productUrl, onStatus);
+    // The product page embeds the same attributes JSON the getProductAttributes AJAX
+    // endpoint returns (the blob that also carries z_features). Read the deck from it
+    // when present and skip the extra rate-limited request; fall back to the AJAX call.
+    let deck = null;
+    const inlineDeckMatch = productHtml.match(/"deck"\s*:\s*"([^"]*)"/);
+    if (inlineDeckMatch) {
+      deck = inlineDeckMatch[1].trim() || null;
+    } else {
+      deck = await fetchProductDeck(productId, productUrl, onStatus);
+    }
 
     let displayName = productName || `Product ${sku}`;
     if (productBrand && !productName.toLowerCase().includes(productBrand.toLowerCase())) {
