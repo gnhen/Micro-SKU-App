@@ -12,7 +12,7 @@ export type Department =
   | 'Service'
   | 'Front End';
 
-export type ThemePreference = 'system' | 'light' | 'dark';
+export type ThemePreference = 'system' | 'light' | 'dark' | 'xp';
 
 export const DEPARTMENTS: Department[] = [
   'General Sales',
@@ -105,7 +105,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         if (dept) setDepartmentState(dept as Department);
         if (tabs) setSelectedTabsState(JSON.parse(tabs));
         if (plans !== null) setPlansEnabledState(JSON.parse(plans));
-        if (theme === 'system' || theme === 'light' || theme === 'dark') {
+        if (theme === 'system' || theme === 'light' || theme === 'dark' || theme === 'xp') {
           setThemePreferenceState(theme);
         }
       } catch (_) {}

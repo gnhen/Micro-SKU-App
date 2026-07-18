@@ -17,7 +17,8 @@ import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Colors } from '@/constants/theme';
+import { Colors, TAB_BAR_CLEARANCE } from '@/constants/theme';
+import { GlassButton } from '@/components/ui/glass-button';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Print from 'expo-print';
@@ -643,16 +644,16 @@ export default function PCBuilderScreen() {
         <ThemedView style={[styles.header, { borderBottomColor: colors.border }]}>
         <ThemedText type="title">PC Builder</ThemedText>
         <View style={styles.headerButtons}>
-          <TouchableOpacity
+          <GlassButton
             style={[styles.headerButton, { backgroundColor: colors.tint }]}
             onPress={() => setShowNewBuildModal(true)}
           >
             <Ionicons name="add" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
             <Text style={[styles.headerButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>New Build</Text>
-          </TouchableOpacity>
+          </GlassButton>
           {currentBuildId && (
             <>
-              <TouchableOpacity
+              <GlassButton
                 style={[styles.headerButton, { backgroundColor: colors.tint }]}
                 onPress={() => {
                   Alert.alert(
@@ -663,14 +664,14 @@ export default function PCBuilderScreen() {
               >
                 <Ionicons name="albums" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
                 <Text style={[styles.headerButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Bundles</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </GlassButton>
+              <GlassButton
                 style={[styles.headerButton, { backgroundColor: colors.tint }]}
                 onPress={generatePDF}
               >
                 <Ionicons name="document-text" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
                 <Text style={[styles.headerButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Save PDF</Text>
-              </TouchableOpacity>
+              </GlassButton>
             </>
           )}
         </View>
@@ -721,7 +722,10 @@ export default function PCBuilderScreen() {
 
       {/* Build Content */}
       {currentBuild ? (
-        <ScrollView style={[styles.content, { backgroundColor: colors.background }]}>
+        <ScrollView
+          style={[styles.content, { backgroundColor: colors.background }]}
+          contentContainerStyle={{ paddingBottom: TAB_BAR_CLEARANCE }}
+        >
           {/* Build Summary */}
           <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <ThemedText type="subtitle">Total Cost</ThemedText>
@@ -827,7 +831,7 @@ export default function PCBuilderScreen() {
                       </View>
                     ))}
                     {category.allowMultiple && (
-                      <TouchableOpacity
+                      <GlassButton
                         style={[styles.addMoreButton, { borderColor: colors.tint }]}
                         onPress={() => handleSelectComponent(category)}
                       >
@@ -835,11 +839,11 @@ export default function PCBuilderScreen() {
                         <Text style={[styles.addMoreButtonText, { color: colors.tint }]}>
                           Add Another {category.display_name}
                         </Text>
-                      </TouchableOpacity>
+                      </GlassButton>
                     )}
                   </View>
                 ) : (
-                  <TouchableOpacity
+                  <GlassButton
                     style={[styles.selectButton, { borderColor: colors.tint }]}
                     onPress={() => handleSelectComponent(category)}
                   >
@@ -847,7 +851,7 @@ export default function PCBuilderScreen() {
                     <Text style={[styles.selectButtonText, { color: colors.tint }]}>
                       Select {category.display_name}
                     </Text>
-                  </TouchableOpacity>
+                  </GlassButton>
                 )}
               </View>
             );
@@ -884,18 +888,18 @@ export default function PCBuilderScreen() {
               autoFocus
             />
             <View style={styles.modalButtons}>
-              <TouchableOpacity
+              <GlassButton
                 style={[styles.modalButton, { backgroundColor: colors.border }]}
                 onPress={() => setShowNewBuildModal(false)}
               >
                 <Text style={[styles.modalButtonText, { color: colors.text }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </GlassButton>
+              <GlassButton
                 style={[styles.modalButton, { backgroundColor: colors.tint }]}
                 onPress={handleCreateBuild}
               >
                 <Text style={[styles.modalButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Create</Text>
-              </TouchableOpacity>
+              </GlassButton>
             </View>
           </View>
         </View>
@@ -917,7 +921,7 @@ export default function PCBuilderScreen() {
             </TouchableOpacity>
           </View>
           {!loadingComponents && (
-            <TouchableOpacity
+            <GlassButton
               style={[styles.enterSkuButton, { backgroundColor: colors.tint, marginHorizontal: 16, marginVertical: 12 }]}
               onPress={() => {
                 setShowComponentModal(false);
@@ -926,7 +930,7 @@ export default function PCBuilderScreen() {
             >
               <Ionicons name="keypad" size={20} color={colorScheme === 'dark' ? '#000' : '#fff'} />
               <Text style={[styles.enterSkuButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Enter SKU</Text>
-            </TouchableOpacity>
+            </GlassButton>
           )}
           {loadingComponents ? (
             <View style={styles.loadingContainer}>
@@ -1011,7 +1015,7 @@ export default function PCBuilderScreen() {
               autoFocus
             />
             <View style={styles.modalButtons}>
-              <TouchableOpacity
+              <GlassButton
                 style={[styles.modalButton, { backgroundColor: colors.border }]}
                 onPress={() => {
                   setShowSkuModal(false);
@@ -1019,13 +1023,13 @@ export default function PCBuilderScreen() {
                 }}
               >
                 <Text style={[styles.modalButtonText, { color: colors.text }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </GlassButton>
+              <GlassButton
                 style={[styles.modalButton, { backgroundColor: colors.tint }]}
                 onPress={handleAddManualSku}
               >
                 <Text style={[styles.modalButtonText, { color: colorScheme === 'dark' ? '#000' : '#fff' }]}>Add</Text>
-              </TouchableOpacity>
+              </GlassButton>
             </View>
           </View>
         </View>

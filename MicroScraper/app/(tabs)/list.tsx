@@ -24,7 +24,8 @@ import * as Haptics from 'expo-haptics';
 import { WebView } from 'react-native-webview';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Colors } from '@/constants/theme';
+import { Colors, TAB_BAR_CLEARANCE, XP_CHROME, XP_FONT, XP_WINDOW, xpDialogTitle } from '@/constants/theme';
+import { GlassButton } from '@/components/ui/glass-button';
 import { fetchProductBySku, setScraperUserAgent } from '../../services/scraper';
 import { createChallengeRequest } from '../../services/challengeSession';
 import { CHALLENGE_SIGNAL_SCRIPT, isChallengeSignal } from '@/services/challengeWebViewUtils';
@@ -93,6 +94,8 @@ function processBarcodeRaw(raw: string): string {
 export default function ListScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const isXP = colorScheme === 'xp';
+  const xpDialog = isXP && xpDialogTitle(24, 12);
 
   const theme = {
     bg: colors.background,
@@ -651,9 +654,9 @@ export default function ListScreen() {
       return (
         <View style={[styles.container, { backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }]}>
           <Text style={{ textAlign: 'center', marginBottom: 20, color: theme.text }}>Camera permission needed</Text>
-          <TouchableOpacity style={styles.primaryBtn} onPress={requestCameraPermission}>
+          <GlassButton style={styles.primaryBtn} onPress={requestCameraPermission}>
             <Text style={styles.primaryBtnText}>Grant Permission</Text>
-          </TouchableOpacity>
+          </GlassButton>
         </View>
       );
     }
@@ -676,12 +679,12 @@ export default function ListScreen() {
               <Text style={styles.toastText}>{toastMsg}</Text>
             </View>
           )}
-          <TouchableOpacity
+          <GlassButton
             style={styles.bulkDoneBtn}
             onPress={() => setScanningToList(false)}
           >
             <Text style={styles.primaryBtnText}>Done</Text>
-          </TouchableOpacity>
+          </GlassButton>
         </View>
       </GestureHandlerRootView>
     );
@@ -693,9 +696,9 @@ export default function ListScreen() {
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
 
-      {/* ── Header ── */}
-      <View style={styles.topBar}>
-        <Text style={[styles.pageTitle, { color: theme.text }]}>Lists</Text>
+      {/* ── Header — styled as an XP window title bar in XP mode ── */}
+      <View style={[styles.topBar, isXP && styles.topBarXP]}>
+        <Text style={[styles.pageTitle, { color: isXP ? XP_CHROME.titleText : theme.text }, isXP && { fontFamily: XP_FONT }]}>Lists</Text>
         <View style={styles.topBarActions}>
           {lists.length >= 1 && (
             <TouchableOpacity
@@ -703,11 +706,11 @@ export default function ListScreen() {
               style={styles.iconBtn}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="trash" size={22} color="#C00" />
+              <Ionicons name="trash" size={22} color={isXP ? XP_CHROME.titleText : '#C00'} />
             </TouchableOpacity>
           )}
           <TouchableOpacity onPress={handleCreateList} style={styles.iconBtn}>
-            <Ionicons name="add-circle-outline" size={28} color="#0173DF" />
+            <Ionicons name="add-circle-outline" size={28} color={isXP ? XP_CHROME.titleText : '#0173DF'} />
           </TouchableOpacity>
         </View>
       </View>
@@ -769,26 +772,30 @@ export default function ListScreen() {
             placeholderTextColor="#aaa"
             autoCorrect={false}
           />
-          <TouchableOpacity
+          <GlassButton
             style={[styles.sortBtn, sortOrder !== 'default' && { backgroundColor: '#0173DF' }]}
             onPress={() => setShowSortModal(true)}
           >
             <Ionicons name="funnel-outline" size={18} color={sortOrder !== 'default' ? 'white' : theme.text} />
-          </TouchableOpacity>
+          </GlassButton>
         </View>
       )}
 
       {/* ── Item list ── */}
       {!currentList ? (
         <View style={styles.emptyState}>
-          <Ionicons name="list-outline" size={60} color="#aaa" />
-          <Text style={[styles.emptyText, { color: theme.text }]}>No lists yet</Text>
-          <Text style={{ color: '#aaa', marginTop: 6 }}>Tap + to create your first list</Text>
+          {isXP
+            ? <Text style={{ fontSize: 54 }}>🗂️</Text>
+            : <Ionicons name="list-outline" size={60} color="#aaa" />}
+          <Text style={[styles.emptyText, { color: theme.text }, isXP && { fontFamily: XP_FONT }]}>No lists yet</Text>
+          <Text style={[{ color: '#aaa', marginTop: 6 }, isXP && { fontFamily: XP_FONT }]}>{isXP ? 'This folder is empty. Tap + to create a list.' : 'Tap + to create your first list'}</Text>
         </View>
       ) : currentList.items.length === 0 ? (
         <View style={styles.emptyState}>
-          <Ionicons name="cart-outline" size={60} color="#aaa" />
-          <Text style={[styles.emptyText, { color: theme.text }]}>List is empty</Text>
+          {isXP
+            ? <Text style={{ fontSize: 54 }}>🛒</Text>
+            : <Ionicons name="cart-outline" size={60} color="#aaa" />}
+          <Text style={[styles.emptyText, { color: theme.text }, isXP && { fontFamily: XP_FONT }]}>List is empty</Text>
           <Text style={{ color: '#aaa', marginTop: 6 }}>Tap "Add Item" to add a product by SKU</Text>
         </View>
       ) : filteredAndSortedItems.length === 0 ? (
@@ -802,13 +809,13 @@ export default function ListScreen() {
             <Swipeable
               key={item.id}
               renderRightActions={() => (
-                <TouchableOpacity
+                <GlassButton
                   style={[styles.swipeDeleteBtn, { marginBottom: 10 }]}
                   onPress={() => deleteItemDirect(item.id)}
                 >
                   <Ionicons name="trash" size={20} color="white" />
                   <Text style={styles.swipeDeleteText}>Delete</Text>
-                </TouchableOpacity>
+                </GlassButton>
               )}
             >
               <TouchableOpacity
@@ -852,7 +859,7 @@ export default function ListScreen() {
       {/* ── FAB row: Scan to List + Add Item ── */}
       {currentList && (
         <View style={styles.fabRow}>
-          <TouchableOpacity
+          <GlassButton
             style={styles.fabSecondary}
             onPress={() => {
               setBulkScanEnabled(true);
@@ -861,8 +868,8 @@ export default function ListScreen() {
           >
             <Ionicons name="scan" size={22} color="white" />
             <Text style={styles.fabSecondaryText}>Scan</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </GlassButton>
+          <GlassButton
             style={styles.fab}
             onPress={() => {
               setAddSkuInput('');
@@ -871,28 +878,28 @@ export default function ListScreen() {
           >
             <Ionicons name="add" size={28} color="white" />
             <Text style={styles.fabText}>Add Item</Text>
-          </TouchableOpacity>
+          </GlassButton>
         </View>
       )}
 
       {/* ── List picker modal (swipe-to-delete rows) ── */}
       <Modal visible={showListPicker} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Select List</Text>
+          <View style={[styles.modalBox, { backgroundColor: theme.card }, isXP && XP_WINDOW]}>
+            <Text style={[styles.modalTitle, { color: theme.text }, xpDialog]}>Select List</Text>
             <Text style={styles.pickerHint}>Swipe left to delete • Long press name to rename</Text>
             <ScrollView style={styles.pickerScroll}>
               {lists.map(list => (
                 <Swipeable
                   key={list.id}
                   renderRightActions={() => (
-                    <TouchableOpacity
+                    <GlassButton
                       style={styles.swipeDeleteBtn}
                       onPress={() => deleteListFromPicker(list.id)}
                     >
                       <Ionicons name="trash" size={20} color="white" />
                       <Text style={styles.swipeDeleteText}>Delete</Text>
-                    </TouchableOpacity>
+                    </GlassButton>
                   )}
                 >
                   <TouchableOpacity
@@ -916,7 +923,7 @@ export default function ListScreen() {
               ))}
             </ScrollView>
             {lists.length >= 2 && (
-              <TouchableOpacity
+              <GlassButton
                 style={styles.deleteAllBtn}
                 onPress={() => {
                   setShowListPicker(false);
@@ -926,14 +933,14 @@ export default function ListScreen() {
               >
                 <Ionicons name="trash" size={16} color="#C00" />
                 <Text style={styles.deleteAllBtnText}>Delete All Lists</Text>
-              </TouchableOpacity>
+              </GlassButton>
             )}
-            <TouchableOpacity
+            <GlassButton
               style={styles.closeBtn}
               onPress={() => setShowListPicker(false)}
             >
               <Text style={styles.closeBtnText}>Close</Text>
-            </TouchableOpacity>
+            </GlassButton>
           </View>
         </View>
       </Modal>
@@ -941,8 +948,8 @@ export default function ListScreen() {
       {/* ── Rename list modal ── */}
       <Modal visible={showRenameModal} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Rename List</Text>
+          <View style={[styles.modalBox, { backgroundColor: theme.card }, isXP && XP_WINDOW]}>
+            <Text style={[styles.modalTitle, { color: theme.text }, xpDialog]}>Rename List</Text>
             <TextInput
               style={[styles.input, { color: theme.text, borderColor: theme.border }]}
               placeholder="List name"
@@ -953,15 +960,15 @@ export default function ListScreen() {
               autoFocus
               selectTextOnFocus
             />
-            <TouchableOpacity style={styles.primaryBtn} onPress={handleRenameList}>
+            <GlassButton style={styles.primaryBtn} onPress={handleRenameList}>
               <Text style={styles.primaryBtnText}>Save</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+            </GlassButton>
+            <GlassButton
               style={styles.closeBtn}
               onPress={() => setShowRenameModal(false)}
             >
               <Text style={styles.closeBtnText}>Cancel</Text>
-            </TouchableOpacity>
+            </GlassButton>
           </View>
         </View>
       </Modal>
@@ -969,8 +976,8 @@ export default function ListScreen() {
       {/* ── Add item by SKU modal ── */}
       <Modal visible={showAddItemModal} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Add Item</Text>
+          <View style={[styles.modalBox, { backgroundColor: theme.card }, isXP && XP_WINDOW]}>
+            <Text style={[styles.modalTitle, { color: theme.text }, xpDialog]}>Add Item</Text>
             <TextInput
               style={[styles.input, { color: theme.text, borderColor: theme.border }]}
               placeholder="Enter SKU"
@@ -985,10 +992,10 @@ export default function ListScreen() {
               <ActivityIndicator size="large" color="#0173DF" style={{ marginVertical: 20 }} />
             ) : (
               <>
-                <TouchableOpacity style={styles.primaryBtn} onPress={handleAddItem}>
+                <GlassButton style={styles.primaryBtn} onPress={handleAddItem}>
                   <Text style={styles.primaryBtnText}>Add to List</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                </GlassButton>
+                <GlassButton
                   style={styles.closeBtn}
                   onPress={() => {
                     setAddSkuInput('');
@@ -996,7 +1003,7 @@ export default function ListScreen() {
                   }}
                 >
                   <Text style={styles.closeBtnText}>Cancel</Text>
-                </TouchableOpacity>
+                </GlassButton>
               </>
             )}
           </View>
@@ -1006,8 +1013,8 @@ export default function ListScreen() {
       {/* ── Sort modal ── */}
       <Modal visible={showSortModal} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Sort Items</Text>
+          <View style={[styles.modalBox, { backgroundColor: theme.card }, isXP && XP_WINDOW]}>
+            <Text style={[styles.modalTitle, { color: theme.text }, xpDialog]}>Sort Items</Text>
             {([
               { key: 'default', label: 'Default (added order)' },
               { key: 'price_asc', label: 'Price: Low to High' },
@@ -1023,9 +1030,9 @@ export default function ListScreen() {
                 {sortOrder === option.key && <Ionicons name="checkmark" size={18} color="#0173DF" />}
               </TouchableOpacity>
             ))}
-            <TouchableOpacity style={styles.closeBtn} onPress={() => setShowSortModal(false)}>
+            <GlassButton style={styles.closeBtn} onPress={() => setShowSortModal(false)}>
               <Text style={styles.closeBtnText}>Cancel</Text>
-            </TouchableOpacity>
+            </GlassButton>
           </View>
         </View>
       </Modal>
@@ -1090,6 +1097,7 @@ export default function ListScreen() {
 const styles = StyleSheet.create({
   container:       { flex: 1, paddingTop: 50 },
   topBar:          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 8 },
+  topBarXP:        { backgroundColor: XP_CHROME.titleBarBlue, marginHorizontal: 12, paddingHorizontal: 14, paddingVertical: 8, borderTopLeftRadius: 8, borderTopRightRadius: 8, borderBottomLeftRadius: 2, borderBottomRightRadius: 2 },
   topBarActions:   { flexDirection: 'row', alignItems: 'center', gap: 4 },
   pageTitle:       { fontSize: 24, fontWeight: 'bold' },
   iconBtn:         { padding: 6 },
@@ -1101,7 +1109,7 @@ const styles = StyleSheet.create({
   totalValue:      { fontSize: 22, fontWeight: 'bold', color: '#0173DF' },
   emptyState:      { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
   emptyText:       { fontSize: 18, fontWeight: '600' },
-  itemList:        { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 100 },
+  itemList:        { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 100 + TAB_BAR_CLEARANCE },
   itemRow:         { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 10, borderWidth: 1, marginBottom: 10, gap: 10 },
   itemIndex:       { width: 24, alignItems: 'center' },
   itemInfo:        { flex: 1 },
@@ -1109,7 +1117,7 @@ const styles = StyleSheet.create({
   itemSku:         { fontSize: 12 },
   itemPrice:       { fontSize: 16, fontWeight: 'bold', color: '#C00', minWidth: 60, textAlign: 'right' },
   removeBtn:       { padding: 4 },
-  fabRow:          { position: 'absolute', bottom: 24, right: 24, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  fabRow:          { position: 'absolute', bottom: 24 + TAB_BAR_CLEARANCE, right: 24, flexDirection: 'row', alignItems: 'center', gap: 12 },
   fab:             { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#0173DF', paddingVertical: 14, paddingHorizontal: 20, borderRadius: 30, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
   fabText:         { color: 'white', fontWeight: 'bold', fontSize: 16 },
   fabSecondary:    { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#5a4a8a', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 30, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
@@ -1119,7 +1127,7 @@ const styles = StyleSheet.create({
   bulkScanSubText: { color: 'rgba(255,255,255,0.7)', fontSize: 13, marginTop: 2 },
   toast:           { position: 'absolute', bottom: 130, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.85)', paddingHorizontal: 22, paddingVertical: 12, borderRadius: 24, maxWidth: '85%' },
   toastText:       { color: 'white', fontWeight: '600', fontSize: 14, textAlign: 'center' },
-  bulkDoneBtn:     { position: 'absolute', bottom: 50, alignSelf: 'center', backgroundColor: '#0173DF', paddingHorizontal: 36, paddingVertical: 15, borderRadius: 30, elevation: 4 },
+  bulkDoneBtn:     { position: 'absolute', bottom: 50 + TAB_BAR_CLEARANCE, alignSelf: 'center', backgroundColor: '#0173DF', paddingHorizontal: 36, paddingVertical: 15, borderRadius: 30, elevation: 4 },
   stockBadge:      { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5, alignItems: 'center', justifyContent: 'center', minWidth: 36 },
   stockBadgeText:  { color: 'white', fontSize: 11, fontWeight: 'bold' },
   modalOverlay:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center' },

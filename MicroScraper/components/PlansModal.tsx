@@ -7,7 +7,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView, PinchGestureHandler, PanGestureHandler } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Colors } from '@/constants/theme';
+import { Colors, XP_CHROME, XP_FONT } from '@/constants/theme';
+import { GlassButton } from '@/components/ui/glass-button';
 import { Plan, getPlansForDepartment, getAllPlans } from '@/constants/plansData';
 import type { Department } from '@/contexts/SettingsContext';
 
@@ -22,6 +23,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 export default function PlansModal({ visible, onClose, department }: Props) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const isXP = colorScheme === 'xp';
 
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -119,22 +121,22 @@ export default function PlansModal({ visible, onClose, department }: Props) {
       <View style={[styles.container, { backgroundColor: theme.bg }]}>
         <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
 
-        {/* ── Header ── */}
-        <View style={[styles.header, { borderBottomColor: theme.border }]}>
+        {/* ── Header — XP window title bar in XP mode ── */}
+        <View style={[styles.header, { borderBottomColor: theme.border }, isXP && { backgroundColor: XP_CHROME.titleBarBlue, borderBottomColor: XP_CHROME.buttonBorder }]}>
           {selectedPlan ? (
             <TouchableOpacity style={styles.headerBtn} onPress={handleBack}>
-              <Ionicons name="chevron-back" size={26} color="#0173DF" />
+              <Ionicons name="chevron-back" size={26} color={isXP ? XP_CHROME.titleText : '#0173DF'} />
             </TouchableOpacity>
           ) : (
             <View style={styles.headerBtn} />
           )}
 
-          <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
+          <Text style={[styles.headerTitle, { color: isXP ? XP_CHROME.titleText : theme.text }, isXP && { fontFamily: XP_FONT }]} numberOfLines={1}>
             {selectedPlan ? selectedPlan.name : 'Plans'}
           </Text>
 
           <TouchableOpacity style={styles.headerBtn} onPress={handleClose}>
-            <Ionicons name="close" size={26} color={theme.text} />
+            <Ionicons name="close" size={26} color={isXP ? XP_CHROME.titleText : theme.text} />
           </TouchableOpacity>
         </View>
 
@@ -170,13 +172,13 @@ export default function PlansModal({ visible, onClose, department }: Props) {
             ))}
 
             {canShowAll && (
-              <TouchableOpacity
+              <GlassButton
                 style={styles.showAllBtn}
                 onPress={() => setShowAll(true)}
               >
                 <Ionicons name="documents-outline" size={18} color="#0173DF" />
                 <Text style={styles.showAllText}>Show All Plans</Text>
-              </TouchableOpacity>
+              </GlassButton>
             )}
 
             <View style={{ height: 40 }} />
@@ -214,9 +216,9 @@ export default function PlansModal({ visible, onClose, department }: Props) {
               </PinchGestureHandler>
             </Animated.View>
           </PanGestureHandler>
-          <TouchableOpacity style={styles.closeBtn} onPress={handleCloseFullscreen}>
+          <GlassButton style={styles.closeBtn} onPress={handleCloseFullscreen}>
             <Ionicons name="close" size={50} color="white" />
-          </TouchableOpacity>
+          </GlassButton>
         </GestureHandlerRootView>
       </Modal>
     </Modal>

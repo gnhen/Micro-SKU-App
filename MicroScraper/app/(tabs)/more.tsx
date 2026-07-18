@@ -10,7 +10,7 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Colors } from '@/constants/theme';
+import { Colors, TAB_BAR_CLEARANCE, XP_FONT, XP_TAB_EMOJI, XP_TITLE_BAR, XP_WINDOW } from '@/constants/theme';
 import { useSettings, TabRoute } from '@/contexts/SettingsContext';
 
 // ─── Tab metadata ─────────────────────────────────────────────────────────────
@@ -30,6 +30,7 @@ export default function MoreScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const router = useRouter();
   const { overflowTabs } = useSettings();
+  const isXP = colorScheme === 'xp';
 
   const theme = {
     bg: colors.background,
@@ -47,7 +48,7 @@ export default function MoreScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
-      <Text style={[styles.header, { color: theme.text }]}>More</Text>
+      <Text style={[styles.header, { color: theme.text }, isXP && XP_TITLE_BAR]}>{isXP ? '📁 My Programs' : 'More'}</Text>
       <ScrollView contentContainerStyle={styles.list}>
         {items.map(route => {
           const meta = TAB_META[route];
@@ -55,14 +56,16 @@ export default function MoreScreen() {
           return (
             <TouchableOpacity
               key={route}
-              style={[styles.row, { backgroundColor: theme.card, borderColor: theme.border }]}
+              style={[styles.row, { backgroundColor: theme.card, borderColor: theme.border }, isXP && XP_WINDOW]}
               onPress={() => router.push(meta.route as any)}
               activeOpacity={0.7}
             >
               <View style={styles.iconWrap}>
-                <Ionicons name={meta.icon as any} size={26} color="#0173DF" />
+                {isXP
+                  ? <Text style={{ fontSize: 24 }}>{XP_TAB_EMOJI[route] ?? '📄'}</Text>
+                  : <Ionicons name={meta.icon as any} size={26} color="#0173DF" />}
               </View>
-              <Text style={[styles.rowLabel, { color: theme.text }]}>{meta.label}</Text>
+              <Text style={[styles.rowLabel, { color: theme.text }, isXP && { fontFamily: XP_FONT }]}>{meta.label}</Text>
               <Ionicons name="chevron-forward" size={18} color="#aaa" />
             </TouchableOpacity>
           );
@@ -77,7 +80,7 @@ export default function MoreScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 50 },
   header:    { fontSize: 24, fontWeight: 'bold', paddingHorizontal: 20, marginBottom: 16 },
-  list:      { paddingHorizontal: 20, gap: 12, paddingBottom: 30 },
+  list:      { paddingHorizontal: 20, gap: 12, paddingBottom: 30 + TAB_BAR_CLEARANCE },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

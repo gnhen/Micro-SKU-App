@@ -6,8 +6,21 @@ import { useEffect, useState } from 'react';
 import { View, Text } from 'react-native';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/theme';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { checkForUpdates } from '@/services/updateChecker';
+
+const XpNavTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    primary: Colors.xp.tint,
+    background: Colors.xp.background,
+    card: Colors.xp.background,
+    text: Colors.xp.text,
+    border: Colors.xp.border,
+  },
+};
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -56,7 +69,9 @@ function RootLayoutContent() {
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider
+      value={colorScheme === 'dark' ? DarkTheme : colorScheme === 'xp' ? XpNavTheme : DefaultTheme}
+    >
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="challenge" options={{ presentation: 'modal', headerShown: false }} />

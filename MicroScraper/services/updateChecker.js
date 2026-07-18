@@ -1,4 +1,4 @@
-import { Alert, Linking } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
 import versionInfo from '../version.json';
 
 // Configure your GitHub repo here
@@ -25,6 +25,12 @@ const compareVersions = (v1, v2) => {
 };
 
 export const checkForUpdates = async (silentOnUpToDate = false) => {
+  // GitHub-release updates only apply to Android sideloads; iOS updates come
+  // through the App Store / TestFlight, so never check or show popups there.
+  if (Platform.OS !== 'android') {
+    return null;
+  }
+
   try {
     const response = await fetch(GITHUB_API_URL);
     

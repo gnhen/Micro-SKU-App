@@ -10,7 +10,8 @@ import { STORES } from '../../constants';
 import versionInfo from '../../version.json';
 import { checkForUpdates } from '../../services/updateChecker';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Colors } from '@/constants/theme';
+import { Colors, TAB_BAR_CLEARANCE, XP_CHROME, XP_FONT, XP_TITLE_BAR, XP_WINDOW, xpDialogTitle } from '@/constants/theme';
+import { GlassButton } from '@/components/ui/glass-button';
 import { DECK_ROWS } from '@/constants/deckMeanings';
 import {
   useSettings,
@@ -27,6 +28,12 @@ type FeedbackMode = 'feedback' | 'references';
 export default function SettingsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const isXP = colorScheme === 'xp';
+  const accent = isXP ? Colors.xp.tint : '#0173DF';
+  const switchOnColor = isXP ? Colors.xp.inStockGreen : '#0173DF';
+  const xpDialog = isXP && xpDialogTitle(20, 10);
+  const sectionLabelColor = isXP ? XP_CHROME.buttonBorder : '#aaa';
+  const xpFont = isXP && { fontFamily: XP_FONT };
   const [storeId, setStoreId] = useState('071');
   const [storeModalVisible, setStoreModalVisible] = useState(false);
   const [themeModalVisible, setThemeModalVisible] = useState(false);
@@ -82,7 +89,9 @@ export default function SettingsScreen() {
       ? `System Selection`
       : themePreference === 'dark'
         ? 'Dark'
-        : 'Light';
+        : themePreference === 'xp'
+          ? 'Windows XP'
+          : 'Light';
 
   const onThemeSelect = (nextTheme: ThemePreference) => {
     setThemePreference(nextTheme);
@@ -162,26 +171,26 @@ export default function SettingsScreen() {
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.header, { color: theme.text }]}>Settings</Text>
+        <Text style={[styles.header, { color: theme.text }, isXP && XP_TITLE_BAR]}>Settings</Text>
 
         {/* ── Department ── */}
-        <Text style={[styles.sectionLabel, { color: '#aaa' }]}>DEPARTMENT</Text>
+        <Text style={[styles.sectionLabel, { color: sectionLabelColor }, xpFont]}>DEPARTMENT</Text>
         <TouchableOpacity
           style={[styles.settingRow, { borderBottomColor: theme.border }]}
           onPress={() => setDeptModalVisible(true)}
         >
           <Text style={[styles.label, { color: theme.text }]}>Department</Text>
           <View style={styles.rowRight}>
-            <Text style={{ color: '#0173DF', fontSize: 15 }}>{department}</Text>
+            <Text style={[{ color: accent, fontSize: 15 }, xpFont]}>{department}</Text>
             <Ionicons name="chevron-forward" size={16} color="#aaa" />
           </View>
         </TouchableOpacity>
 
         {/* ── Tab Customization ── */}
-        <Text style={[styles.sectionLabel, { color: '#aaa', marginTop: 20 }]}>VISIBLE TABS</Text>
+        <Text style={[styles.sectionLabel, { color: sectionLabelColor, marginTop: 20 }, xpFont]}>VISIBLE TABS</Text>
         {willUseMore && (
           <View style={[styles.infoBanner, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Ionicons name="information-circle-outline" size={18} color="#0173DF" />
+            <Ionicons name="information-circle-outline" size={18} color={accent} />
             <Text style={{ color: theme.text, flex: 1, fontSize: 13 }}>
               More than 4 tabs selected — Settings will move to the "More" tab.
             </Text>
@@ -217,7 +226,7 @@ export default function SettingsScreen() {
                   toggleTab(route);
                 }}
                 thumbColor="#fff"
-                trackColor={{ true: '#0173DF', false: '#ccc' }}
+                trackColor={{ true: switchOnColor, false: '#ccc' }}
                 disabled={!canRemove}
               />
             </View>
@@ -230,19 +239,19 @@ export default function SettingsScreen() {
             <Ionicons name="settings" size={20} color="#aaa" style={styles.tabIcon} />
             <Text style={[styles.label, { color: theme.text }]}>Settings</Text>
           </View>
-          <Switch value={true} disabled thumbColor="#fff" trackColor={{ true: '#0173DF' }} />
+          <Switch value={true} disabled thumbColor="#fff" trackColor={{ true: switchOnColor }} />
         </View>
 
         {/* ── Tools ── */}
-        <Text style={[styles.sectionLabel, { color: '#aaa', marginTop: 20 }]}>TOOLS</Text>
+        <Text style={[styles.sectionLabel, { color: sectionLabelColor, marginTop: 20 }, xpFont]}>TOOLS</Text>
         <View style={[styles.settingRow, { borderBottomColor: theme.border }]}> 
           <View style={styles.tabRowLeft}>
             <Ionicons name="refresh" size={20} color="#aaa" style={styles.tabIcon} />
             <Text style={[styles.label, { color: theme.text }]}>Deck Meanings</Text>
           </View>
-          <TouchableOpacity style={styles.viewButton} onPress={() => setDeckModalVisible(true)}>
+          <GlassButton style={styles.viewButton} onPress={() => setDeckModalVisible(true)}>
             <Text style={styles.viewButtonText}>View</Text>
-          </TouchableOpacity>
+          </GlassButton>
         </View>
 
         <TouchableOpacity
@@ -254,20 +263,20 @@ export default function SettingsScreen() {
             <Text style={[styles.label, { color: theme.text }]}>Send References</Text>
           </View>
           <View style={styles.rowRight}>
-            <Text style={{ color: '#0173DF', fontSize: 15 }}>Fill out Form</Text>
+            <Text style={[{ color: accent, fontSize: 15 }, xpFont]}>Fill out Form</Text>
             <Ionicons name="chevron-forward" size={16} color="#aaa" />
           </View>
         </TouchableOpacity>
 
         {/* ── Store ── */}
-        <Text style={[styles.sectionLabel, { color: '#aaa', marginTop: 20 }]}>GENERAL</Text>
+        <Text style={[styles.sectionLabel, { color: sectionLabelColor, marginTop: 20 }, xpFont]}>GENERAL</Text>
         <TouchableOpacity
           style={[styles.settingRow, { borderBottomColor: theme.border }]}
           onPress={() => setThemeModalVisible(true)}
         >
           <Text style={[styles.label, { color: theme.text }]}>Theme</Text>
           <View style={styles.rowRight}>
-            <Text style={{ color: '#0173DF', fontSize: 15 }}>{themeLabel}</Text>
+            <Text style={[{ color: accent, fontSize: 15 }, xpFont]}>{themeLabel}</Text>
             <Ionicons name="chevron-forward" size={16} color="#aaa" />
           </View>
         </TouchableOpacity>
@@ -278,7 +287,7 @@ export default function SettingsScreen() {
         >
           <Text style={[styles.label, { color: theme.text }]}>Send Feedback</Text>
           <View style={styles.rowRight}>
-            <Text style={{ color: '#0173DF', fontSize: 15 }}>Fill out Form</Text>
+            <Text style={[{ color: accent, fontSize: 15 }, xpFont]}>Fill out Form</Text>
             <Ionicons name="chevron-forward" size={16} color="#aaa" />
           </View>
         </TouchableOpacity>
@@ -289,7 +298,7 @@ export default function SettingsScreen() {
         >
           <Text style={[styles.label, { color: theme.text }]}>Store Location</Text>
           <View style={styles.rowRight}>
-            <Text style={{ color: '#0173DF', fontSize: 15 }}>
+            <Text style={[{ color: accent, fontSize: 15 }, xpFont]}>
               {storeId} - {currentStoreName}
             </Text>
             <Ionicons name="chevron-forward" size={16} color="#aaa" />
@@ -301,10 +310,15 @@ export default function SettingsScreen() {
           onPress={() => Linking.openURL('https://github.com/gnhen/Micro-SKU-App/releases/latest')}
         >
           <Text style={[styles.label, { color: theme.text }]}>View Latest Release</Text>
-          <Text style={{ color: '#0173DF', fontSize: 16 }}>{latestVersion ? latestVersion : `v${versionInfo.version}`}</Text>
+          <Text style={[{ color: accent, fontSize: 16 }, xpFont]}>{latestVersion ? latestVersion : `v${versionInfo.version}`}</Text>
         </TouchableOpacity>
 
         <View style={{ height: 40 }} />
+        {isXP && (
+          <Text style={[styles.versionText, { fontFamily: XP_FONT, marginBottom: 6 }]}>
+            🖥️ Welcome to Micro SKU App XP Edition
+          </Text>
+        )}
         <Text style={styles.versionText}>Build v{versionInfo.version} - by Grant Hendricks</Text>
         {storeId === '071' && <Text style={[styles.versionText, { color: '#727272', fontWeight: '200', marginTop: 6 }]}>Sharonville Rocks</Text>}
         <View style={{ height: 30 }} />
@@ -313,13 +327,14 @@ export default function SettingsScreen() {
       {/* ── Department picker ── */}
       <Modal visible={themeModalVisible} animationType="slide" transparent>
         <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}> 
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Select Theme</Text>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }, isXP && XP_WINDOW]}> 
+            <Text style={[styles.modalTitle, { color: theme.text }, xpDialog]}>Select Theme</Text>
 
             {([
               { key: 'system', label: `System (${colorScheme === 'dark' ? 'Dark' : 'Light'})` },
               { key: 'light', label: 'Light' },
               { key: 'dark', label: 'Dark' },
+              { key: 'xp', label: '🪟 Windows XP' },
             ] as { key: ThemePreference; label: string }[]).map(option => (
               <TouchableOpacity
                 key={option.key}
@@ -328,17 +343,17 @@ export default function SettingsScreen() {
               >
                 <Text style={{ fontSize: 16, color: theme.text }}>{option.label}</Text>
                 {themePreference === option.key && (
-                  <Ionicons name="checkmark" size={18} color="#0173DF" />
+                  <Ionicons name="checkmark" size={18} color={accent} />
                 )}
               </TouchableOpacity>
             ))}
 
-            <TouchableOpacity
+            <GlassButton
               style={styles.closeButton}
               onPress={() => setThemeModalVisible(false)}
             >
               <Text style={{ color: 'white', fontWeight: 'bold' }}>Close</Text>
-            </TouchableOpacity>
+            </GlassButton>
           </View>
         </View>
       </Modal>
@@ -346,8 +361,8 @@ export default function SettingsScreen() {
       {/* ── Department picker ── */}
       <Modal visible={deptModalVisible} animationType="slide" transparent>
         <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Select Department</Text>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }, isXP && XP_WINDOW]}>
+            <Text style={[styles.modalTitle, { color: theme.text }, xpDialog]}>Select Department</Text>
             <ScrollView>
               {DEPARTMENTS.map(dept => (
                 <TouchableOpacity
@@ -360,7 +375,7 @@ export default function SettingsScreen() {
                 >
                   <Text style={{ fontSize: 16, color: theme.text }}>{dept}</Text>
                   {dept === department && (
-                    <Ionicons name="checkmark" size={18} color="#0173DF" />
+                    <Ionicons name="checkmark" size={18} color={accent} />
                   )}
                   <Text style={{ color: '#aaa', fontSize: 12 }}>
                     {DEPARTMENT_DEFAULTS[dept].filter(t => t !== 'index').map(t =>
@@ -370,12 +385,12 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TouchableOpacity 
-              style={styles.closeButton} 
+            <GlassButton
+              style={styles.closeButton}
               onPress={() => setDeptModalVisible(false)}
             >
               <Text style={{ color: 'white', fontWeight: 'bold' }}>Close</Text>
-            </TouchableOpacity>
+            </GlassButton>
           </View>
         </View>
       </Modal>
@@ -383,8 +398,8 @@ export default function SettingsScreen() {
       {/* ── Store picker ── */}
       <Modal visible={storeModalVisible} animationType="slide" transparent>
         <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Select Store</Text>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }, isXP && XP_WINDOW]}>
+            <Text style={[styles.modalTitle, { color: theme.text }, xpDialog]}>Select Store</Text>
             <ScrollView>
               {STORES.map((store: any) => (
                 <TouchableOpacity 
@@ -397,12 +412,12 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TouchableOpacity 
-              style={styles.closeButton} 
+            <GlassButton
+              style={styles.closeButton}
               onPress={() => setStoreModalVisible(false)}
             >
               <Text style={{ color: 'white', fontWeight: 'bold' }}>Close</Text>
-            </TouchableOpacity>
+            </GlassButton>
           </View>
         </View>
       </Modal>
@@ -410,8 +425,8 @@ export default function SettingsScreen() {
       {/* ── Feedback form ── */}
       <Modal visible={feedbackModalVisible} animationType="slide" transparent>
         <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}> 
-            <Text style={[styles.modalTitle, { color: theme.text }]}>{feedbackMode === 'references' ? 'Send References' : 'Send Feedback'}</Text>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }, isXP && XP_WINDOW]}> 
+            <Text style={[styles.modalTitle, { color: theme.text }, xpDialog]}>{feedbackMode === 'references' ? 'Send References' : 'Send Feedback'}</Text>
 
             <Text style={[styles.feedbackLabel, { color: theme.text }]}>Name</Text>
             <TextInput
@@ -445,15 +460,15 @@ export default function SettingsScreen() {
             />
 
             <View style={styles.feedbackActions}>
-              <TouchableOpacity
+              <GlassButton
                 style={[styles.feedbackActionBtn, styles.feedbackCancelBtn]}
                 onPress={() => setFeedbackModalVisible(false)}
                 disabled={feedbackSubmitting}
               >
                 <Text style={styles.feedbackCancelText}>Cancel</Text>
-              </TouchableOpacity>
+              </GlassButton>
 
-              <TouchableOpacity
+              <GlassButton
                 style={[styles.feedbackActionBtn, styles.feedbackSubmitBtn]}
                 onPress={submitFeedback}
                 disabled={feedbackSubmitting}
@@ -462,7 +477,7 @@ export default function SettingsScreen() {
                   ? <ActivityIndicator color="white" />
                   : <Text style={styles.feedbackSubmitText}>Submit</Text>
                 }
-              </TouchableOpacity>
+              </GlassButton>
             </View>
           </View>
         </View>
@@ -470,8 +485,8 @@ export default function SettingsScreen() {
 
       <Modal visible={feedbackStoreModalVisible} animationType="slide" transparent>
         <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}> 
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Select Store</Text>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }, isXP && XP_WINDOW]}> 
+            <Text style={[styles.modalTitle, { color: theme.text }, xpDialog]}>Select Store</Text>
             <ScrollView>
               {STORES.map((store: any) => {
                 const storeLabel = `${store.id} - ${store.name}`;
@@ -487,18 +502,18 @@ export default function SettingsScreen() {
                     <Text style={{ fontSize: 16, color: theme.text }}>{store.name}</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <Text style={{ color: 'gray' }}>{store.id}</Text>
-                      {feedbackStore === storeLabel && <Ionicons name="checkmark" size={18} color="#0173DF" />}
+                      {feedbackStore === storeLabel && <Ionicons name="checkmark" size={18} color={accent} />}
                     </View>
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
-            <TouchableOpacity
+            <GlassButton
               style={styles.closeButton}
               onPress={() => setFeedbackStoreModalVisible(false)}
             >
               <Text style={{ color: 'white', fontWeight: 'bold' }}>Close</Text>
-            </TouchableOpacity>
+            </GlassButton>
           </View>
         </View>
       </Modal>
@@ -506,8 +521,8 @@ export default function SettingsScreen() {
       {/* ── Deck meanings ── */}
       <Modal visible={deckModalVisible} animationType="slide" transparent>
         <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}> 
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Merchandising Deck Definitions</Text>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }, isXP && XP_WINDOW]}> 
+            <Text style={[styles.modalTitle, { color: theme.text }, xpDialog]}>Merchandising Deck Definitions</Text>
 
             <View style={[styles.deckTableHeader, { borderColor: theme.border }]}> 
               <Text style={[styles.deckHeaderDeck, { color: theme.text }]}>Deck</Text>
@@ -533,12 +548,12 @@ export default function SettingsScreen() {
               })}
             </ScrollView>
 
-            <TouchableOpacity 
-              style={styles.closeButton} 
+            <GlassButton
+              style={styles.closeButton}
               onPress={() => setDeckModalVisible(false)}
             >
               <Text style={{ color: 'white', fontWeight: 'bold' }}>Close</Text>
-            </TouchableOpacity>
+            </GlassButton>
           </View>
         </View>
       </Modal>
@@ -548,7 +563,7 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   container:    { flex: 1 },
-  scrollContent:{ padding: 20, paddingTop: 70 },
+  scrollContent:{ padding: 20, paddingTop: 70, paddingBottom: 20 + TAB_BAR_CLEARANCE },
   header:       { fontSize: 24, fontWeight: 'bold', marginBottom: 20 },
   sectionLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 4, marginTop: 4 },
   settingRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1 },

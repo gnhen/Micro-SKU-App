@@ -5,9 +5,10 @@ import React, { useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { Colors } from '@/constants/theme';
+import { Colors, TAB_BAR_CLEARANCE, XP_FONT, XP_TITLE_BAR } from '@/constants/theme';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
+import { GlassButton } from '@/components/ui/glass-button';
 
 export default function HistoryScreen() {
   const colorScheme = useColorScheme();
@@ -97,7 +98,7 @@ export default function HistoryScreen() {
           contentContainerStyle={[styles.scrollContent, { backgroundColor: colors.background }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.tint} />}
         >
-          <Text style={[styles.header, { color: colors.text }]}>Search History</Text>
+          <Text style={[styles.header, { color: colors.text }, colorScheme === 'xp' && XP_TITLE_BAR]}>Search History</Text>
 
           <TextInput
             style={[styles.searchInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}
@@ -109,25 +110,27 @@ export default function HistoryScreen() {
           />
 
           {history.length === 0 ? (
-            <Text style={[styles.emptyText, { color: colors.text }]}>No search history yet</Text>
+            <Text style={[styles.emptyText, { color: colors.text }, colorScheme === 'xp' && { fontFamily: XP_FONT }]}>
+              {colorScheme === 'xp' ? '🕓 Your Recent Documents folder is empty' : 'No search history yet'}
+            </Text>
           ) : (
             <>
-              <Text style={styles.swipeHint}>Swipe left to delete an item</Text>
-              <TouchableOpacity style={styles.clearButton} onPress={clearHistory}>
+              <Text style={[styles.swipeHint, colorScheme === 'xp' && { fontFamily: XP_FONT }]}>Swipe left to delete an item</Text>
+              <GlassButton style={styles.clearButton} onPress={clearHistory}>
                 <Text style={styles.clearButtonText}>Clear All History</Text>
-              </TouchableOpacity>
+              </GlassButton>
 
               {filteredHistory.map((item, index) => (
                 <Swipeable
                   key={index}
                   renderRightActions={() => (
-                    <TouchableOpacity
+                    <GlassButton
                       style={styles.swipeDeleteBtn}
                       onPress={() => deleteHistoryItem(item.sku)}
                     >
                       <Ionicons name="trash" size={20} color="white" />
                       <Text style={styles.swipeDeleteText}>Delete</Text>
-                    </TouchableOpacity>
+                    </GlassButton>
                   )}
                 >
                   <TouchableOpacity
@@ -153,7 +156,7 @@ export default function HistoryScreen() {
 
 const styles = StyleSheet.create({
   container:       { flex: 1 },
-  scrollContent:   { padding: 20 },
+  scrollContent:   { padding: 20, paddingBottom: 20 + TAB_BAR_CLEARANCE },
   header:          { fontSize: 24, fontWeight: 'bold', marginBottom: 8 },
   swipeHint:       { fontSize: 12, color: '#aaa', marginBottom: 12 },
   emptyText:       { fontSize: 16, textAlign: 'center', marginTop: 40 },

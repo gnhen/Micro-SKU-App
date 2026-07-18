@@ -16,7 +16,7 @@ import { GestureHandlerRootView, PinchGestureHandler, PanGestureHandler, State }
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS, withRepeat, withTiming, withSequence, withDelay, Easing } from 'react-native-reanimated';
 import { WebView } from 'react-native-webview';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Colors } from '@/constants/theme';
+import { Colors, TAB_BAR_CLEARANCE, XP_CHROME, XP_FONT, XP_WINDOW, xpDialogTitle } from '@/constants/theme';
 import { STORES } from '../../constants';
 import { initDatabase, addComponent } from '@/services/database';
 import { detectComponentCategory, extractComponentSpecs } from '@/services/componentDetector';
@@ -27,6 +27,7 @@ import { findStore071MapEntries, STORE_071_MAP_IMAGE, STORE_071_MAP_IMAGE_WIDTH,
 import type { Store071MapEntry } from '@/constants/store071MapIndex';
 import { getDeckMeaning } from '@/constants/deckMeanings';
 import PlansModal from '@/components/PlansModal';
+import { GlassButton } from '@/components/ui/glass-button';
 import SkeletonCard from '@/components/SkeletonCard';
 import SelectableText from '@/components/SelectableText';
 import { createChallengeRequest } from '../../services/challengeSession';
@@ -123,6 +124,8 @@ function BouncingStockDots({ color }: { color: string }) {
 export default function ScanScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const isXP = colorScheme === 'xp';
+  const [clippyDismissed, setClippyDismissed] = useState(false);
   const [sku, setSku] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1156,9 +1159,9 @@ export default function ScanScreen() {
       return (
         <View style={[styles.container, {justifyContent: 'center', backgroundColor: theme.bg}]}>
           <Text style={{textAlign: 'center', marginBottom: 20, color: theme.text}}>Camera permission needed</Text>
-          <TouchableOpacity style={styles.button} onPress={requestPermission}>
+          <GlassButton style={styles.button} onPress={requestPermission}>
              <Text style={styles.buttonText}>Grant Permission</Text>
-          </TouchableOpacity>
+          </GlassButton>
         </View>
       );
     }
@@ -1171,15 +1174,15 @@ export default function ScanScreen() {
             barcodeTypes: ["qr", "ean13", "ean8", "code128", "code39", "upc_a", "upc_e"],
           }}
         />
-        <TouchableOpacity 
-          style={styles.cancelScanBtn} 
+        <GlassButton
+          style={styles.cancelScanBtn}
           onPress={() => {
             setScanning(false);
             setScannerEnabled(true);
           }}
         >
           <Text style={styles.buttonText}>Cancel Scan</Text>
-        </TouchableOpacity>
+        </GlassButton>
       </View>
     );
   }
@@ -1192,7 +1195,7 @@ export default function ScanScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
       >
-        <View style={styles.header}>
+        <View style={[styles.header, isXP && styles.headerXP]}>
           <TouchableOpacity
             style={styles.appTitlePressable}
             activeOpacity={0.9}
@@ -1200,18 +1203,18 @@ export default function ScanScreen() {
             onLongPress={openTitleEditor}
           >
             <View>
-              <Text style={[styles.appTitle, { color: theme.text }]}>{homeTitle}</Text>
-              <Text style={[styles.tagline, { color: theme.text, opacity: 0.65 }]}>{selectedStoreLabel} Location</Text>
+              <Text style={[styles.appTitle, { color: isXP ? XP_CHROME.titleText : theme.text }, isXP && { fontFamily: XP_FONT }]}>{homeTitle}</Text>
+              <Text style={[styles.tagline, isXP ? { color: XP_CHROME.titleSubText, fontFamily: XP_FONT } : { color: theme.text, opacity: 0.65 }]}>{selectedStoreLabel} Location</Text>
             </View>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.plansButton, { borderColor: theme.text }]}
+          <GlassButton
+            style={[styles.plansButton, { borderColor: isXP ? XP_CHROME.titleText : theme.text }]}
             onPress={() => setPlansModalVisible(true)}
             activeOpacity={0.85}
           >
-            <Ionicons name="reader-outline" size={16} color={theme.text} />
-            <Text style={[styles.plansButtonText, { color: theme.text }]}>Plans</Text>
-          </TouchableOpacity>
+            <Ionicons name="reader-outline" size={16} color={isXP ? XP_CHROME.titleText : theme.text} />
+            <Text style={[styles.plansButtonText, { color: isXP ? XP_CHROME.titleText : theme.text }]}>Plans</Text>
+          </GlassButton>
         </View>
         <View style={styles.searchWrapper}>
           <View style={styles.searchBox}>
@@ -1243,7 +1246,7 @@ export default function ScanScreen() {
           </View>
 
           <View style={styles.searchActionsRow}>
-            <TouchableOpacity
+            <GlassButton
               style={[styles.searchActionButtonBase, styles.textSearchSmallButton, styles.textSearchToggleBtn, textSearchMode && styles.textSearchToggleActive]}
               onPress={() => {
                 const next = !textSearchMode;
@@ -1261,9 +1264,9 @@ export default function ScanScreen() {
               }}
             >
               <Text style={styles.textSearchSmallButtonText}>Text Search</Text>
-            </TouchableOpacity>
+            </GlassButton>
 
-            <TouchableOpacity
+            <GlassButton
               style={[styles.button, styles.searchActionButtonBase, styles.searchMainButton, textSearchMode && styles.buttonTextMode]}
               onPress={() => textSearchMode ? handleTextSearch() : handleSearch(null)}
               disabled={textSearchLoading}
@@ -1272,17 +1275,30 @@ export default function ScanScreen() {
                 ? <ActivityIndicator color="white" />
                 : <Text style={styles.buttonText}>{textSearchMode ? 'Search' : 'Submit'}</Text>
               }
-            </TouchableOpacity>
+            </GlassButton>
 
-            <TouchableOpacity
+            <GlassButton
               style={[styles.searchActionButtonBase, styles.scanActionButton]}
               onPress={() => setScanning(true)}
             >
               <Ionicons name="scan" size={18} color="white" />
               <Text style={styles.scanActionButtonText}>Scan</Text>
-            </TouchableOpacity>
+            </GlassButton>
           </View>
         </View>
+
+        {/* Clippy — XP mode office assistant */}
+        {isXP && !clippyDismissed && !data && !loading && !textSearchLoading && (
+          <View style={styles.clippyBox}>
+            <Text style={{ fontSize: 28 }}>📎</Text>
+            <Text style={styles.clippyText}>
+              It looks like you&apos;re trying to look up a product. Type a SKU above, or tap Scan!
+            </Text>
+            <TouchableOpacity onPress={() => setClippyDismissed(true)} hitSlop={8}>
+              <Text style={styles.clippyClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {loading && !textSearchLoading && <SkeletonCard loadingStatus={loadingStatus} />}
         {textSearchLoading && (
@@ -1349,6 +1365,7 @@ export default function ScanScreen() {
           style={[
             styles.resultCard,
             { borderColor: theme.border, backgroundColor: theme.card },
+            isXP && XP_WINDOW,
             resultCardStyle,
           ]}
         >
@@ -1477,7 +1494,7 @@ export default function ScanScreen() {
                 )}
               </View>
               {storeId === '071' && (
-                <TouchableOpacity
+                <GlassButton
                   style={styles.storeDatCodeButton}
                   activeOpacity={0.85}
                   onPress={() => {
@@ -1488,7 +1505,7 @@ export default function ScanScreen() {
                   }}
                 >
                   <Text style={styles.storeDatCodeButtonText}>Find Item</Text>
-                </TouchableOpacity>
+                </GlassButton>
               )}
             </View>
           </View>
@@ -1591,15 +1608,15 @@ export default function ScanScreen() {
           {/* Open Product Page Button */}
           {data.url && (
             <View style={{flexDirection: 'row', width: '100%', gap: 10, marginTop: 15, marginBottom: 10}}>
-              <TouchableOpacity 
-                style={[styles.openPageButton, { flex: 0.7, marginTop: 0, marginBottom: 0 }]} 
+              <GlassButton
+                style={[styles.openPageButton, { flex: 0.7, marginTop: 0, marginBottom: 0 }]}
                 onPress={() => Linking.openURL(data.url)}
               >
                 <Text style={styles.openPageButtonText}>Open Product Page</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.openPageButton, { flex: 0.3, marginTop: 0, marginBottom: 0, backgroundColor: '#4da6ff' }]} 
+              </GlassButton>
+
+              <GlassButton
+                style={[styles.openPageButton, { flex: 0.3, marginTop: 0, marginBottom: 0, backgroundColor: '#4da6ff' }]}
                 onPress={async () => {
                   try {
                     await Clipboard.setStringAsync(data.url);
@@ -1610,7 +1627,7 @@ export default function ScanScreen() {
                 }}
               >
                 <Text style={[styles.openPageButtonText, { fontSize: 13 }]}>Copy Link</Text>
-              </TouchableOpacity>
+              </GlassButton>
             </View>
           )}
 
@@ -1618,7 +1635,7 @@ export default function ScanScreen() {
 
           {/* Add to List Button — shown when List tab is active */}
           {listTabActive && (
-            <TouchableOpacity
+            <GlassButton
               style={[
                 styles.addToBuilderButton,
                 { backgroundColor: addingToList ? '#aaa' : '#1a7a1a' },
@@ -1630,7 +1647,7 @@ export default function ScanScreen() {
               <Text style={[styles.addToBuilderButtonText, { color: 'white' }]}>
                 {addingToList ? 'Adding...' : 'Add to List'}
               </Text>
-            </TouchableOpacity>
+            </GlassButton>
           )}
         </Animated.View>
       )}
@@ -1644,8 +1661,8 @@ export default function ScanScreen() {
         onRequestClose={() => setShowTitleEditModal(false)}
       >
         <View style={styles.titleEditOverlay}>
-          <View style={[styles.titleEditCard, { backgroundColor: theme.card, borderColor: theme.border }] }>
-            <Text style={[styles.titleEditHeading, { color: theme.text }]}>Edit Header Title</Text>
+          <View style={[styles.titleEditCard, { backgroundColor: theme.card, borderColor: theme.border }, isXP && XP_WINDOW]}>
+            <Text style={[styles.titleEditHeading, { color: theme.text }, isXP && xpDialogTitle(16, 12)]}>Edit Header Title</Text>
             <TextInput
               style={[styles.titleEditInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]}
               value={titleDraft}
@@ -1658,18 +1675,18 @@ export default function ScanScreen() {
               autoFocus
             />
             <View style={styles.titleEditActions}>
-              <TouchableOpacity
+              <GlassButton
                 style={[styles.titleEditButton, styles.titleEditCancel]}
                 onPress={() => setShowTitleEditModal(false)}
               >
                 <Text style={styles.titleEditCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </GlassButton>
+              <GlassButton
                 style={[styles.titleEditButton, styles.titleEditSave]}
                 onPress={saveTitleEditor}
               >
                 <Text style={styles.titleEditSaveText}>Save</Text>
-              </TouchableOpacity>
+              </GlassButton>
             </View>
           </View>
         </View>
@@ -1683,8 +1700,8 @@ export default function ScanScreen() {
         onRequestClose={() => { setShowListPickerModal(false); setPendingListItem(null); }}
       >
         <View style={styles.listPickerOverlay}>
-          <View style={[styles.listPickerBox, { backgroundColor: theme.card }]}>
-            <Text style={[styles.listPickerTitle, { color: theme.text }]}>Add to Which List?</Text>
+          <View style={[styles.listPickerBox, { backgroundColor: theme.card }, isXP && XP_WINDOW]}>
+            <Text style={[styles.listPickerTitle, { color: theme.text }, isXP && xpDialogTitle(24, 16)]}>Add to Which List?</Text>
             <ScrollView style={{ maxHeight: 320 }}>
               {availableListsForPicker.map(list => (
                 <TouchableOpacity
@@ -1708,12 +1725,12 @@ export default function ScanScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TouchableOpacity
+            <GlassButton
               style={styles.listPickerCancelBtn}
               onPress={() => { setShowListPickerModal(false); setPendingListItem(null); }}
             >
               <Text style={{ fontWeight: 'bold', fontSize: 15, color: theme.subtleText }}>Cancel</Text>
-            </TouchableOpacity>
+            </GlassButton>
           </View>
         </View>
       </Modal>
@@ -1771,22 +1788,22 @@ export default function ScanScreen() {
           </PanGestureHandler>
           {fullScreenImage === STORE_071_MAP_IMAGE && mapMatches.length > 0 ? (
             <View style={styles.mapNoticeBanner}>
-              <TouchableOpacity style={styles.mapArrowButton} onPress={handlePrevMapMatch}>
+              <GlassButton style={styles.mapArrowButton} onPress={handlePrevMapMatch}>
                 <Ionicons name="chevron-back" size={20} color="white" />
-              </TouchableOpacity>
+              </GlassButton>
               <Text style={styles.mapNoticeText} numberOfLines={1}>
                 {`Map Location: ${(mapMatches[mapMatchIndex]?.text || mapSearchCode || 'Unknown')} (${mapMatchIndex + 1}/${mapMatches.length})`}
               </Text>
-              <TouchableOpacity style={styles.mapArrowButton} onPress={handleNextMapMatch}>
+              <GlassButton style={styles.mapArrowButton} onPress={handleNextMapMatch}>
                 <Ionicons name="chevron-forward" size={20} color="white" />
-              </TouchableOpacity>
+              </GlassButton>
             </View>
           ) : mapOverlayNotice ? (
             <View style={styles.mapNoticeBanner}>
               <Text style={styles.mapNoticeText}>{mapOverlayNotice}</Text>
             </View>
           ) : null}
-          <TouchableOpacity 
+          <GlassButton
             style={styles.closeButton}
             onPress={() => {
               resetImageTransform();
@@ -1798,7 +1815,7 @@ export default function ScanScreen() {
             }}
           >
             <Ionicons name="close" size={50} color="white" />
-          </TouchableOpacity>
+          </GlassButton>
         </GestureHandlerRootView>
       </Modal>
 
@@ -1865,8 +1882,12 @@ export default function ScanScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 50 },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 30 },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 30 + TAB_BAR_CLEARANCE },
   header: { marginTop: 10, marginBottom: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' },
+  headerXP: { backgroundColor: XP_CHROME.titleBarBlue, paddingHorizontal: 12, paddingVertical: 10, borderTopLeftRadius: 8, borderTopRightRadius: 8, borderBottomLeftRadius: 2, borderBottomRightRadius: 2 },
+  clippyBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFFFE1', borderWidth: 1, borderColor: '#000', borderRadius: 6, padding: 12, marginBottom: 16, width: '100%', maxWidth: 400, alignSelf: 'center' },
+  clippyText: { flex: 1, fontFamily: XP_FONT, fontSize: 13, color: '#000' },
+  clippyClose: { fontWeight: 'bold', color: '#000', fontSize: 14, padding: 2 },
   appTitlePressable: { flexShrink: 1 },
   appTitle: { fontSize: 28, fontWeight: 'bold', color: '#000' },
   tagline: { fontSize: 14, color: '#999', marginTop: 4 },
@@ -1923,7 +1944,7 @@ const styles = StyleSheet.create({
   openPageButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   addToBuilderButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 15, borderRadius: 8, marginBottom: 10 },
   addToBuilderButtonText: { fontWeight: 'bold', fontSize: 16 },
-  cancelScanBtn: { position: 'absolute', bottom: 50, alignSelf: 'center', backgroundColor: 'red', padding: 15, borderRadius: 30 },
+  cancelScanBtn: { position: 'absolute', bottom: 50 + TAB_BAR_CLEARANCE, alignSelf: 'center', backgroundColor: 'red', padding: 15, borderRadius: 30 },
   fullScreenContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.98)', justifyContent: 'center', alignItems: 'center' },
     fullScreenGestureSurface: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' },
     fullScreenTouchable: { justifyContent: 'center', alignItems: 'center' },

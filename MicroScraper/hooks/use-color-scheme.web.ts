@@ -13,7 +13,7 @@ export function useColorScheme() {
   }, []);
 
   const colorScheme = useRNColorScheme();
-  let themePreference: 'system' | 'light' | 'dark' = 'system';
+  let themePreference: 'system' | 'light' | 'dark' | 'xp' = 'system';
 
   try {
     themePreference = useSettings().themePreference;
@@ -21,7 +21,7 @@ export function useColorScheme() {
     // allow usage before provider mounts
   }
 
-  if (themePreference === 'light' || themePreference === 'dark') {
+  if (themePreference === 'light' || themePreference === 'dark' || themePreference === 'xp') {
     return themePreference;
   }
 

@@ -1,7 +1,7 @@
 {
   "name": "microscraper",
   "main": "expo-router/entry",
-  "version": "0.4.104",
+  "version": "0.4.105",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
@@ -25,6 +25,7 @@
     "expo-clipboard": "~8.0.8",
     "expo-constants": "~18.0.13",
     "expo-font": "~14.0.11",
+    "expo-glass-effect": "~0.1.10",
     "expo-haptics": "~15.0.8",
     "expo-image": "~3.0.11",
     "expo-intent-launcher": "~13.0.8",

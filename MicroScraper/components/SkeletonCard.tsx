@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Colors } from '@/constants/theme';
+import { Colors, XP_WINDOW } from '@/constants/theme';
 
 // Each segment in the shimmer "glow" — together they form a soft gradient bell curve.
 // Opacities approximate: 0 → 0.25 → 0.6 → 1.0 → 0.6 → 0.25 → 0
@@ -86,7 +86,7 @@ export default function SkeletonCard({ loadingStatus }: { loadingStatus?: string
   const b = { shimmer };
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, colorScheme === 'xp' && XP_WINDOW]}>
       {/* Image strip */}
       <SkeletonBox {...b} width="100%" height={185} style={{ borderRadius: 8, marginBottom: 14 }} />
 

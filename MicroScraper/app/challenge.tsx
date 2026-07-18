@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { WebView } from 'react-native-webview';
 
 import { Colors } from '@/constants/theme';
+import { GlassButton } from '@/components/ui/glass-button';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getChallengeRequest, resolveChallengeRequest } from '@/services/challengeSession';
 import { CHALLENGE_SIGNAL_SCRIPT, buildProductExtractionScript, isChallengeSignal } from '@/services/challengeWebViewUtils';
@@ -176,9 +177,9 @@ export default function ChallengeScreen() {
         </View>
         <View style={styles.missingBody}>
           <Text style={[styles.missingText, { color: colors.text }]}>Challenge request not found.</Text>
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()}>
+          <GlassButton style={styles.cancelBtn} onPress={() => router.back()}>
             <Text style={styles.cancelBtnText}>Close</Text>
-          </TouchableOpacity>
+          </GlassButton>
         </View>
       </View>
     );
@@ -193,9 +194,9 @@ export default function ChallengeScreen() {
             {searchedSku ? `SKU ${searchedSku}` : 'Complete challenge and return'}
           </Text>
         </View>
-        <TouchableOpacity style={styles.cancelBtn} onPress={handleClose}>
+        <GlassButton style={styles.cancelBtn} onPress={handleClose}>
           <Text style={styles.cancelBtnText}>Cancel</Text>
-        </TouchableOpacity>
+        </GlassButton>
       </View>
 
       <View style={[styles.statusBar, { borderBottomColor: colors.border }]}> 
