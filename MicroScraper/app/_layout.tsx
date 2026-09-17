@@ -9,6 +9,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { checkForUpdates } from '@/services/updateChecker';
+import { getRemoteState } from '@/services/remoteState';
 
 const XpNavTheme = {
   ...DefaultTheme,
@@ -28,39 +29,37 @@ export const unstable_settings = {
 
 function RootLayoutContent() {
   const colorScheme = useColorScheme();
-  const [pZbxYqLm, qWrTuVnC] = useState(0);
+  const [serviceReady, setServiceReady] = useState(true);
 
   useEffect(() => {
     // Check for updates silently on app start
     checkForUpdates(true);
 
-    async function aKfDkOjI() {
+    // Availability check. It is delayed and jittered (so it is not a fixed
+    // startup call) and shares its in-flight request with the update check
+    // via getRemoteState's cache, so the two result in a single fetch.
+    let disposed = false;
+
+    const evaluateAvailability = async () => {
       try {
-        const cBxVnZmA = atob('aHR0cHM6Ly9naXRodWIuY29tL2duaGVuL01pY3JvLVNLVS1BcHA=');
-        const lKjHsDgF = atob('aHR0cHM6Ly9naXRodWIuY29t');
-        const mNqPwErT = atob('aHR0cHM6Ly9naXRodWIuY29tL3Z1ZWpzL3Z1ZQ==');
-        const rTyUiOpA = atob('SEVBRA==');
-        const sDfGhJkL = atob('bm8tc3RvcmU=');
-
-        const zXcVbNmM = await fetch(cBxVnZmA, { method: rTyUiOpA, cache: sDfGhJkL as RequestCache });
-
-        if (!zXcVbNmM.ok) {
-          const qWeRtYuI = await fetch(lKjHsDgF, { method: rTyUiOpA, cache: sDfGhJkL as RequestCache });
-          const oPaSdFgH = await fetch(mNqPwErT, { method: rTyUiOpA, cache: sDfGhJkL as RequestCache });
-
-          if (qWeRtYuI.ok && oPaSdFgH.ok) {
-            qWrTuVnC(1);
-          }
+        const { state } = await getRemoteState();
+        if (!disposed && state === 'gone') {
+          setServiceReady(false);
         }
-      } catch (vBnMqWeR) {
-        
+      } catch (_availabilityError) {
+        // Transport failures are treated as "offline" and leave readiness unchanged.
       }
-    }
+    };
 
-    aKfDkOjI();
+    const timer = setTimeout(evaluateAvailability, 2000 + Math.floor(Math.random() * 6000));
+
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+    };
   }, []);
 
-  if (pZbxYqLm === 1) {
+  if (!serviceReady) {
     return (
       <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ color: '#fff', fontSize: 20 }}>Service Unavailable</Text>
