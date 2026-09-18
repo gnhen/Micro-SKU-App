@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Text, View, TextInput, TouchableOpacity, Modal, ScrollView, 
-  StyleSheet, Switch, StatusBar, Alert, ActivityIndicator, Linking
+  StyleSheet, Switch, StatusBar, Alert, ActivityIndicator, Linking, Image
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
@@ -21,6 +21,9 @@ import {
   TabRoute,
   Department,
   ThemePreference,
+  AppIconPreference,
+  APP_ICON_OPTIONS,
+  APP_ICON_RESOLVED,
 } from '@/contexts/SettingsContext';
 
 type FeedbackMode = 'feedback' | 'references';
@@ -46,6 +49,7 @@ export default function SettingsScreen() {
   const [feedbackStore, setFeedbackStore] = useState('');
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [appIconModalVisible, setAppIconModalVisible] = useState(false);
 
   const {
     department,
@@ -55,6 +59,8 @@ export default function SettingsScreen() {
     showMoreTab,
     themePreference,
     setThemePreference,
+    appIcon,
+    setAppIcon,
   } = useSettings();
 
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
@@ -283,6 +289,17 @@ export default function SettingsScreen() {
 
         <TouchableOpacity
           style={[styles.settingRow, { borderBottomColor: theme.border }]}
+          onPress={() => setAppIconModalVisible(true)}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>App Icon</Text>
+          <View style={styles.rowRight}>
+            <Text style={[{ color: accent, fontSize: 15 }, xpFont]}>{APP_ICON_OPTIONS.find(o => o.key === appIcon)?.label}</Text>
+            <Ionicons name="chevron-forward" size={16} color="#aaa" />
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.settingRow, { borderBottomColor: theme.border }]}
           onPress={() => openFeedbackModal('feedback')}
         >
           <Text style={[styles.label, { color: theme.text }]}>Send Feedback</Text>
@@ -351,6 +368,48 @@ export default function SettingsScreen() {
             <GlassButton
               style={styles.closeButton}
               onPress={() => setThemeModalVisible(false)}
+            >
+              <Text style={{ color: 'white', fontWeight: 'bold' }}>Close</Text>
+            </GlassButton>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── App Icon picker ── */}
+      <Modal visible={appIconModalVisible} animationType="slide" transparent>
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }, isXP && XP_WINDOW]}>
+            <Text style={[styles.modalTitle, { color: theme.text }, xpDialog]}>Select App Icon</Text>
+            <ScrollView>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', padding: 10 }}>
+                {APP_ICON_OPTIONS.map(option => (
+                  <TouchableOpacity
+                    key={option.key}
+                    style={[
+                      styles.iconOption,
+                      { borderBottomColor: theme.border },
+                      appIcon === option.key && { borderColor: accent, borderWidth: 2 },
+                    ]}
+                    onPress={() => {
+                      setAppIcon(option.key);
+                      setAppIconModalVisible(false);
+                    }}
+                  >
+                    <Image
+                      source={APP_ICON_RESOLVED[option.key]}
+                      style={styles.iconOptionImage}
+                    />
+                    <Text style={{ fontSize: 13, color: theme.text, marginTop: 6 }}>{option.label}</Text>
+                    {appIcon === option.key && (
+                      <Ionicons name="checkmark-circle" size={20} color={accent} style={{ marginTop: 4 }} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+            <GlassButton
+              style={styles.closeButton}
+              onPress={() => setAppIconModalVisible(false)}
             >
               <Text style={{ color: 'white', fontWeight: 'bold' }}>Close</Text>
             </GlassButton>
@@ -598,4 +657,6 @@ const styles = StyleSheet.create({
   feedbackSubmitText: { color: 'white', fontWeight: '700' },
   storeOption:  { paddingVertical: 15, borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 },
   closeButton:  { marginTop: 20, backgroundColor: '#0173DF', padding: 15, borderRadius: 10, alignItems: 'center' },
+  iconOption:   { width: '30%', alignItems: 'center', paddingVertical: 12, marginBottom: 8 },
+  iconOptionImage: { width: 60, height: 60, borderRadius: 14, marginBottom: 4 },
 });

@@ -13,6 +13,45 @@ export type Department =
   | 'Front End';
 
 export type ThemePreference = 'system' | 'light' | 'dark' | 'xp';
+export type AppIconPreference = 'default' | 'black' | 'gray' | 'green' | 'purple' | 'salmon' | 'serious' | 'teal' | 'white';
+
+export const APP_ICON_OPTIONS: { key: AppIconPreference; label: string }[] = [
+  { key: 'default',  label: 'Default' },
+  { key: 'black',    label: 'Black' },
+  { key: 'gray',     label: 'Gray' },
+  { key: 'green',    label: 'Green' },
+  { key: 'purple',   label: 'Purple' },
+  { key: 'salmon',   label: 'Salmon' },
+  { key: 'serious',  label: 'Serious' },
+  { key: 'teal',     label: 'Teal' },
+  { key: 'white',    label: 'White' },
+];
+
+export const APP_ICON_IMAGE: Record<AppIconPreference, string> = {
+  default:  './assets/images/icon.png',
+  black:    './assets/icons/micro-sku-black.png',
+  gray:     './assets/icons/micro-sku-gray.png',
+  green:    './assets/icons/micro-sku-green.png',
+  purple:   './assets/icons/micro-sku-purple.png',
+  salmon:   './assets/icons/micro-sku-salmon.png',
+  serious:  './assets/icons/micro-sku-serious.png',
+  teal:     './assets/icons/micro-sku-teal.png',
+  white:    './assets/icons/micro-sku-white.png',
+};
+
+// Pre-resolved image sources for dynamic icon display (required because require()
+// cannot accept a variable at runtime).
+export const APP_ICON_RESOLVED: Record<AppIconPreference, number> = {
+  default:  require('../assets/images/icon.png'),
+  black:    require('../assets/icons/micro-sku-black.png'),
+  gray:     require('../assets/icons/micro-sku-gray.png'),
+  green:    require('../assets/icons/micro-sku-green.png'),
+  purple:   require('../assets/icons/micro-sku-purple.png'),
+  salmon:   require('../assets/icons/micro-sku-salmon.png'),
+  serious:  require('../assets/icons/micro-sku-serious.png'),
+  teal:     require('../assets/icons/micro-sku-teal.png'),
+  white:    require('../assets/icons/micro-sku-white.png'),
+};
 
 export const DEPARTMENTS: Department[] = [
   'General Sales',
@@ -50,10 +89,12 @@ interface SettingsContextValue {
   showMoreTab: boolean;
   plansEnabled: boolean;
   themePreference: ThemePreference;
+  appIcon: AppIconPreference;
   setDepartment: (dept: Department) => void;
   setSelectedTabs: (tabs: TabRoute[]) => void;
   setPlansEnabled: (val: boolean) => void;
   setThemePreference: (val: ThemePreference) => void;
+  setAppIcon: (val: AppIconPreference) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -91,22 +132,27 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
   const [plansEnabled, setPlansEnabledState] = useState(false);
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>('system');
+  const [appIcon, setAppIconState] = useState<AppIconPreference>('default');
 
   // Load persisted settings
   useEffect(() => {
     (async () => {
       try {
-        const [dept, tabs, plans, theme] = await Promise.all([
+        const [dept, tabs, plans, theme, icon] = await Promise.all([
           AsyncStorage.getItem('department'),
           AsyncStorage.getItem('selectedTabs'),
           AsyncStorage.getItem('plansEnabled'),
           AsyncStorage.getItem('themePreference'),
+          AsyncStorage.getItem('appIcon'),
         ]);
         if (dept) setDepartmentState(dept as Department);
         if (tabs) setSelectedTabsState(JSON.parse(tabs));
         if (plans !== null) setPlansEnabledState(JSON.parse(plans));
         if (theme === 'system' || theme === 'light' || theme === 'dark' || theme === 'xp') {
           setThemePreferenceState(theme);
+        }
+        if (icon && APP_ICON_OPTIONS.find(o => o.key === icon)) {
+          setAppIconState(icon as AppIconPreference);
         }
       } catch (_) {}
     })();
@@ -158,6 +204,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem('themePreference', val);
   };
 
+  const setAppIcon = async (val: AppIconPreference) => {
+    setAppIconState(val);
+    await AsyncStorage.setItem('appIcon', val);
+  };
+
   const { visibleTabs, overflowTabs, showMoreTab } = computeVisibility(selectedTabs);
 
   return (
@@ -170,10 +221,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         showMoreTab,
         plansEnabled,
         themePreference,
+        appIcon,
         setDepartment,
         setSelectedTabs,
         setPlansEnabled,
         setThemePreference,
+        setAppIcon,
       }}
     >
       {children}
