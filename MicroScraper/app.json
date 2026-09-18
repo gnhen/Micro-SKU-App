@@ -2,7 +2,7 @@
   "expo": {
     "name": "Micro SKU App",
     "slug": "MicroScraper",
-    "version": "0.4.105",
+    "version": "0.4.106",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "microscraper",
@@ -25,7 +25,7 @@
     },
     "android": {
       "package": "com.microscraper.app",
-      "versionCode": 5,
+      "versionCode": 6,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
