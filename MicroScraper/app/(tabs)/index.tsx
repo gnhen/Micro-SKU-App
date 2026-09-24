@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Text, View, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Alert, Image, Modal, Dimensions, PixelRatio, Platform, StatusBar, Linking, ActivityIndicator,
+  StyleSheet, Alert, Image, Modal, Dimensions, Platform, StatusBar, Linking, ActivityIndicator,
   LayoutAnimation,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,8 +10,8 @@ import * as Haptics from 'expo-haptics';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchProductBySku, fetchTextSearch, setScraperUserAgent, resolveExactStock } from '../../services/scraper';
-import { useFocusEffect } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect } from 'expo-router/react-navigation';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { GestureHandlerRootView, PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS, withRepeat, withTiming, withSequence, withDelay, Easing } from 'react-native-reanimated';
 import { WebView } from 'react-native-webview';
@@ -22,65 +22,20 @@ import { initDatabase, addComponent } from '@/services/database';
 import { detectComponentCategory, extractComponentSpecs } from '@/services/componentDetector';
 import { useSettings } from '@/contexts/SettingsContext';
 import { lookupUiCare } from '@/constants/uiCareData';
-import { lookupStore071MergedCode, lookupStore071MergedCodes } from '@/constants/store071Lookup';
-import { findStore071MapEntries, STORE_071_MAP_IMAGE, STORE_071_MAP_IMAGE_WIDTH, STORE_071_MAP_IMAGE_HEIGHT, STORE_071_MAP_PAGE_HEIGHT, STORE_071_MAP_PAGE_WIDTH } from '@/constants/store071MapIndex';
-import type { Store071MapEntry } from '@/constants/store071MapIndex';
+
 import { getDeckMeaning } from '@/constants/deckMeanings';
 import PlansModal from '@/components/PlansModal';
 import { GlassButton } from '@/components/ui/glass-button';
 import SkeletonCard from '@/components/SkeletonCard';
 import SelectableText from '@/components/SelectableText';
-import { createChallengeRequest } from '../../services/challengeSession';
-import { CHALLENGE_SIGNAL_SCRIPT, isChallengeSignal } from '@/services/challengeWebViewUtils';
 import type { ItemList, ListItem } from './list';
+import { processBarcodeData } from '@/utils/barcode';
+import { safeParse } from '@/utils/safeParse';
+import { useChallengeSolver } from '@/hooks/useChallengeSolver';
 
 const LIST_STORAGE_KEY = 'itemLists';
 const HOME_TITLE_KEY = 'homeScreenTitle';
 const DEFAULT_HOME_TITLE = 'Micro SKU App';
-
-// Helper function to process scanned barcode data
-const processBarcodeData = (scannedData) => {
-  // Aggressively clean invisible characters which might mess up regex/length checks
-  const trimmedData = scannedData.replace(/[\x00-\x1F\x7F-\x9F]/g, "").trim();
-  const charCount = trimmedData.length;
-  
-  console.log(`Processing barcode: "${trimmedData}" (Length: ${charCount})`);
-
-  // 1. URL Check
-  if (trimmedData.toLowerCase().includes('microcenter.com')) {
-    console.log('Detected Micro Center URL');
-    return { value: trimmedData, isURL: true };
-  }
-  
-  // 2. Exact 6 digits Check (Direct SKU)
-  if (/^\d{6}$/.test(trimmedData)) {
-    console.log('Detected 6-digit SKU');
-    return trimmedData;
-  }
-  
-  // 3. Special Internal Code (7-10 characters)
-  // Examples: "75007500df", "75007583df"
-  // Logic: If it starts with 6 digits and is within this length range, pull the SKU.
-  if (charCount >= 7 && charCount <= 10) {
-    const startsWithSixDigits = /^\d{6}/.test(trimmedData);
-    if (startsWithSixDigits) {
-      const extractedSku = trimmedData.substring(0, 6);
-      console.log(`Extracted SKU from internal code: ${extractedSku}`);
-      return extractedSku;
-    }
-  }
-  
-  // 4. UPC / Long Code Check ( > 10 characters )
-  // Example: "824142287309"
-  if (charCount > 10) {
-    console.log('Detected UPC code (>10 chars)');
-    return { value: trimmedData, isUPC: true };
-  }
-  
-  // Fallback
-  console.log('Using fallback - returning trimmed data as-is');
-  return trimmedData;
-};
 
 // A single dot that bounces on a continuous loop, offset by `delay` so a row of them
 // ripples. Used as the placeholder while the exact stock count resolves in the background.
@@ -139,7 +94,7 @@ export default function ScanScreen() {
   const [titleDraft, setTitleDraft] = useState(DEFAULT_HOME_TITLE);
   const [expandedSpecs, setExpandedSpecs] = useState(true);
   const [fullScreenImage, setFullScreenImage] = useState<string | number | null>(null);
-  const [mapOverlayNotice, setMapOverlayNotice] = useState<string | null>(null);
+
   const [validImageUrls, setValidImageUrls] = useState<string[]>([]);
   const [zoomImageUrls, setZoomImageUrls] = useState<string[]>([]);
   const [compingFallbackTried, setCompingFallbackTried] = useState(false);
@@ -152,9 +107,11 @@ export default function ScanScreen() {
   const [pendingListItem, setPendingListItem] = useState<ListItem | null>(null);
   const [availableListsForPicker, setAvailableListsForPicker] = useState<ItemList[]>([]);
 
+  // Shared background Cloudflare challenge solver.
+  const { solve: solveBackgroundChallenge, hiddenWebView } = useChallengeSolver();
+
   const mismatchAlertActive = useRef<boolean>(false);
   const noResultsAlertActive = useRef<boolean>(false);
-  const mapMinScaleRef = useRef<number>(1);
   const searchRequestRef = useRef<number>(0);
   const prevDataRef = useRef<any>(null);
   // Ref mirrors scannerEnabled so onBarcodeScanned can gate re-entrant calls synchronously,
@@ -179,21 +136,14 @@ export default function ScanScreen() {
   const [textQuery, setTextQuery] = useState('');
   const [textResults, setTextResults] = useState<{sku: string, name: string, price: string | null, url: string, imageUrl: string | null, stockText: string | null}[]>([]);
   const [textSearchLoading, setTextSearchLoading] = useState(false);
-  const [store071MergedCode, setStore071MergedCode] = useState<string | null>(null);
-  const [store071MergedCodes, setStore071MergedCodes] = useState<string[]>([]);
-  const [mapMatches, setMapMatches] = useState<Store071MapEntry[]>([]);
-  const [mapMatchIndex, setMapMatchIndex] = useState(0);
-  const [mapSearchCode, setMapSearchCode] = useState<string | null>(null);
+
 
   const { selectedTabs, department } = useSettings();
   const listTabActive = selectedTabs.includes('list');
   const router = useRouter();
 
   const [plansModalVisible, setPlansModalVisible] = useState(false);
-  const [backgroundChallenge, setBackgroundChallenge] = useState<any>(null);
-  const backgroundChallengeResolverRef = useRef<any>(null);
-  const backgroundChallengeTimerRef = useRef<any>(null);
-  const backgroundChallengeUserAgentRef = useRef<string | null>(null);
+  // Background challenge state is now managed by useChallengeSolver hook.
   
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
@@ -202,10 +152,6 @@ export default function ScanScreen() {
   const savedTranslateX = useSharedValue(0);
   const savedTranslateY = useSharedValue(0);
 
-  const _pr = PixelRatio.get();
-  const MAP_LOGICAL_W = STORE_071_MAP_IMAGE_WIDTH / _pr;
-  const MAP_LOGICAL_H = STORE_071_MAP_IMAGE_HEIGHT / _pr;
-
   const resetImageTransform = () => {
     scale.value = 1;
     savedScale.value = 1;
@@ -213,7 +159,6 @@ export default function ScanScreen() {
     translateY.value = 0;
     savedTranslateX.value = 0;
     savedTranslateY.value = 0;
-    mapMinScaleRef.current = 1;
   };
 
   const onPinchGesture = (event) => {
@@ -222,10 +167,9 @@ export default function ScanScreen() {
 
   const onPinchEnd = (event) => {
     savedScale.value = scale.value;
-      const minScale = fullScreenImage === STORE_071_MAP_IMAGE ? mapMinScaleRef.current : 1;
-      if (scale.value < minScale) {
-        scale.value = withSpring(minScale);
-        savedScale.value = minScale;
+    if (scale.value < 1) {
+      scale.value = withSpring(1);
+      savedScale.value = 1;
       translateX.value = withSpring(0);
       translateY.value = withSpring(0);
       savedTranslateX.value = 0;
@@ -241,88 +185,6 @@ export default function ScanScreen() {
   const onPanEnd = () => {
     savedTranslateX.value = translateX.value;
     savedTranslateY.value = translateY.value;
-  };
-
-  const focusMapEntry = (entry: Store071MapEntry) => {
-    const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-    const displayFitScale = Math.min(screenWidth / MAP_LOGICAL_W, screenHeight / MAP_LOGICAL_H);
-    mapMinScaleRef.current = displayFitScale;
-
-    const avgX = (entry.xMin + entry.xMax) / 2;
-    const avgY = (entry.yMin + entry.yMax) / 2;
-
-    const matchImgW = Math.max(
-      MAP_LOGICAL_W * (entry.xMax - entry.xMin) / STORE_071_MAP_PAGE_WIDTH,
-      MAP_LOGICAL_W * 0.005,
-    );
-    const matchImgH = Math.max(
-      MAP_LOGICAL_H * (entry.yMax - entry.yMin) / STORE_071_MAP_PAGE_HEIGHT,
-      MAP_LOGICAL_H * 0.005,
-    );
-
-    const targetZoomX = (screenWidth * 0.35) / (matchImgW * displayFitScale);
-    const targetZoomY = (screenHeight * 0.35) / (matchImgH * displayFitScale);
-    const targetZoom = Math.max(1.8, Math.min(4.5, Math.min(targetZoomX, targetZoomY)));
-    const targetScale = displayFitScale * targetZoom;
-
-    scale.value = targetScale;
-    savedScale.value = targetScale;
-
-    const targetTranslateX = MAP_LOGICAL_W * (0.5 - avgX / STORE_071_MAP_PAGE_WIDTH) * targetScale;
-    const targetTranslateY = MAP_LOGICAL_H * (0.5 - avgY / STORE_071_MAP_PAGE_HEIGHT) * targetScale;
-
-    translateX.value = targetTranslateX;
-    translateY.value = targetTranslateY;
-    savedTranslateX.value = targetTranslateX;
-    savedTranslateY.value = targetTranslateY;
-  };
-
-  const focusMapMatchAtIndex = (nextIndex: number) => {
-    if (mapMatches.length === 0) return;
-    const wrapped = (nextIndex + mapMatches.length) % mapMatches.length;
-    setMapMatchIndex(wrapped);
-    focusMapEntry(mapMatches[wrapped]);
-    setMapOverlayNotice(null);
-  };
-
-  const handlePrevMapMatch = () => focusMapMatchAtIndex(mapMatchIndex - 1);
-  const handleNextMapMatch = () => focusMapMatchAtIndex(mapMatchIndex + 1);
-
-  const openStoreMapForCodes = (locationCodes: string[]) => {
-    resetImageTransform();
-
-    const codes = Array.from(new Set(
-      locationCodes
-        .map(code => String(code ?? '').trim())
-        .filter(code => code.length > 0)
-    ));
-
-    const seen = new Set<string>();
-    const matches: Store071MapEntry[] = [];
-
-    for (const code of codes) {
-      const codeMatches = findStore071MapEntries(code);
-      for (const entry of codeMatches) {
-        const key = `${entry.text}|${entry.xMin}|${entry.yMin}|${entry.xMax}|${entry.yMax}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        matches.push(entry);
-      }
-    }
-
-    setMapSearchCode(codes[0] ?? null);
-    setMapMatches(matches);
-    setMapMatchIndex(0);
-
-    if (matches.length > 0) {
-      focusMapEntry(matches[0]);
-      setMapOverlayNotice(null);
-    } else {
-      const fallbackCode = codes[0] ?? null;
-      setMapOverlayNotice(fallbackCode ? `Location ${fallbackCode} not found on map` : 'No location available');
-    }
-
-    setFullScreenImage(STORE_071_MAP_IMAGE);
   };
 
   const renderRatingStars = (rating: number) => {
@@ -366,20 +228,7 @@ export default function ScanScreen() {
           setHomeTitle(DEFAULT_HOME_TITLE);
         }
       });
-      // Check for pending search from history
-      AsyncStorage.getItem('pendingSearch').then(async (pendingSku) => {
-        if (pendingSku) {
-          // Clear the pending search
-          await AsyncStorage.removeItem('pendingSearch');
-          // Exit text search mode so the result card is visible
-          setTextSearchMode(false);
-          setTextResults([]);
-          setTextQuery('');
-          // Set the SKU and trigger search
-          setSku(pendingSku);
-          handleSearch(pendingSku);
-        }
-      });
+      // Pending search is handled below via useFocusEffect on the `pendingSearch` param.
     }, [])
   );
 
@@ -426,6 +275,25 @@ export default function ScanScreen() {
     }
   }, [scanning]);
 
+  // Handle pending search passed via expo-router params from the history screen.
+  const params = useLocalSearchParams();
+  useFocusEffect(
+    React.useCallback(() => {
+      const pendingSku = (params as { pendingSearch?: string }).pendingSearch;
+      if (pendingSku) {
+        // Clear the param so it doesn't re-fire on re-focus.
+        router.setParams({ pendingSearch: undefined });
+        // Exit text search mode so the result card is visible.
+        setTextSearchMode(false);
+        setTextResults([]);
+        setTextQuery('');
+        // Set the SKU and trigger search.
+        setSku(pendingSku);
+        handleSearch(pendingSku);
+      }
+    }, [params])
+  );
+
   useEffect(() => {
     if (!data) return;
     if (validImageUrls.length > 0) return;
@@ -466,18 +334,6 @@ export default function ScanScreen() {
     console.log('All comping images failed, trying single-image fallback URL');
     setValidImageUrls(singleImageCandidates);
   }, [data, validImageUrls, zoomImageUrls, compingFallbackTried, singleImageFallbackTried]);
-
-  useEffect(() => {
-    return () => {
-      if (backgroundChallengeTimerRef.current) {
-        clearTimeout(backgroundChallengeTimerRef.current);
-      }
-      if (backgroundChallengeResolverRef.current) {
-        backgroundChallengeResolverRef.current({ status: 'failed', reason: 'unmounted' });
-        backgroundChallengeResolverRef.current = null;
-      }
-    };
-  }, []);
 
   // Animate result card in when data first arrives (null → something)
   useEffect(() => {
@@ -566,7 +422,7 @@ export default function ScanScreen() {
   const addToHistory = async (productData) => {
     try {
       const existing = await AsyncStorage.getItem('searchHistory');
-      let history = existing ? JSON.parse(existing) : [];
+      let history = safeParse(existing, []);
       
       history = history.filter(item => item.sku !== productData.sku);
       
@@ -672,7 +528,7 @@ export default function ScanScreen() {
     setAddingToList(true);
     try {
       const raw = await AsyncStorage.getItem(LIST_STORAGE_KEY);
-      const lists: ItemList[] = raw ? JSON.parse(raw) : [];
+      const lists: ItemList[] = safeParse(raw, []);
 
       if (lists.length === 0) {
         Alert.alert(
@@ -704,7 +560,7 @@ export default function ScanScreen() {
 
       const addToListById = async (listId: string) => {
         const latestRaw = await AsyncStorage.getItem(LIST_STORAGE_KEY);
-        const latestLists: ItemList[] = latestRaw ? JSON.parse(latestRaw) : lists;
+        const latestLists: ItemList[] = safeParse(latestRaw, lists);
         const targetList = latestLists.find(l => l.id === listId);
         if (targetList?.items.some(i => i.sku === newItem.sku)) {
           const addAnyway = await new Promise<boolean>(resolve =>
@@ -743,7 +599,8 @@ export default function ScanScreen() {
     }
   };
 
-  const handleTextSearch = async (backgroundAttempted = false, challengeAttempted = false) => {
+  const handleTextSearch = async (opts: { backgroundAttempted?: boolean; challengeAttempted?: boolean } = {}) => {
+    const { backgroundAttempted = false, challengeAttempted = false } = opts;
     if (!textQuery.trim()) return;
     setTextSearchLoading(true);
     if (!backgroundAttempted && !challengeAttempted) {
@@ -759,7 +616,7 @@ export default function ScanScreen() {
         // Only one product matched — load it directly and exit text mode
         setTextSearchMode(false);
         setTextQuery('');
-        handleSearch(result.singleUrl, false, false);
+        handleSearch(result.singleUrl);
       } else if (result.error === 'challengeRequired') {
         if (challengeAttempted) {
           Alert.alert('Verification Required', 'Verification was completed, but Micro Center is still blocking this request. Please try again in a moment.');
@@ -769,13 +626,13 @@ export default function ScanScreen() {
 
         if (!backgroundAttempted) {
           setError('Micro Center requested verification. Attempting automatic solver...');
-          const backgroundOutcome: any = await runBackgroundChallengeFlow((result as any).challenge, textQuery.trim());
+          const backgroundOutcome: any = await solveBackgroundChallenge((result as any).challenge, textQuery.trim());
           if (backgroundOutcome?.status === 'solved') {
             if (backgroundOutcome?.userAgent) {
               setScraperUserAgent(backgroundOutcome.userAgent);
             }
             console.log('[handleTextSearch] Background verification succeeded. Retrying without popup.');
-            return handleTextSearch(true, false);
+            return handleTextSearch({ backgroundAttempted: true });
           }
         }
 
@@ -787,7 +644,7 @@ export default function ScanScreen() {
             setScraperUserAgent(challengeOutcome.userAgent);
           }
           console.log('[handleTextSearch] Challenge solved. Retrying text search.');
-          return handleTextSearch(true, true);
+          return handleTextSearch({ backgroundAttempted: true, challengeAttempted: true });
         } else {
           setError('Verification failed or cancelled.');
         }
@@ -808,36 +665,6 @@ export default function ScanScreen() {
     }
   };
 
-  const resolveBackgroundChallenge = (outcome: any) => {
-    if (backgroundChallengeTimerRef.current) {
-      clearTimeout(backgroundChallengeTimerRef.current);
-      backgroundChallengeTimerRef.current = null;
-    }
-
-    const resolver = backgroundChallengeResolverRef.current;
-    backgroundChallengeResolverRef.current = null;
-    setBackgroundChallenge(null);
-
-    if (resolver) {
-      resolver(outcome);
-    }
-  };
-
-  const runBackgroundChallengeFlow = async (challenge: any, searchedSku: string) => {
-    const fallbackUrl = `https://www.microcenter.com/search/search_results.aspx?Ntt=${encodeURIComponent(searchedSku)}&searchButton=search&storeid=${storeId}`;
-    const startUrl = challenge?.url || fallbackUrl;
-
-    return new Promise((resolve) => {
-      backgroundChallengeUserAgentRef.current = null;
-      backgroundChallengeResolverRef.current = resolve;
-      setBackgroundChallenge({ url: startUrl, searchedSku });
-
-      backgroundChallengeTimerRef.current = setTimeout(() => {
-        resolveBackgroundChallenge({ status: 'failed', reason: 'timeout' });
-      }, 6500);
-    });
-  };
-
   const applySolvedProductData = (productData: any, fallbackSku: string, fromBarcodeScan: boolean, isURL: boolean) => {
     const finalData = {
       ...productData,
@@ -856,8 +683,6 @@ export default function ScanScreen() {
     }
 
     setData(finalData);
-    setStore071MergedCode(lookupStore071MergedCode(String(finalData.sku ?? '')));
-    setStore071MergedCodes(lookupStore071MergedCodes(String(finalData.sku ?? '')));
     setZoomImageUrls(finalData.imageUrls || []);
     setCompingFallbackTried(false);
     setSingleImageFallbackTried(false);
@@ -911,16 +736,16 @@ export default function ScanScreen() {
     return typeof value === 'string' && value.toLowerCase().includes('microcenter.com/product/');
   };
 
-  const handleSearch = async (
-    searchSku,
-    isUPC = false,
-    fromBarcodeScan = false,
-    challengeAttempted = false,
-    backgroundAttempted = false,
-    requestedSku: string | null = null,
-    originalWasUrl = false
-  ) => {
-    const targetSku = searchSku || sku;
+  const handleSearch = async (input: string | null, opts: Partial<{
+    isUPC?: boolean;
+    fromBarcodeScan?: boolean;
+    challengeAttempted?: boolean;
+    backgroundAttempted?: boolean;
+    requestedSku?: string | null;
+    originalWasUrl?: boolean;
+  }> = {}) => {
+    const { isUPC = false, fromBarcodeScan = false, challengeAttempted = false, backgroundAttempted = false, requestedSku: optRequestedSku, originalWasUrl: optOriginalWasUrl } = opts;
+    const targetSku = (typeof input === 'string' && input) ? input : sku;
     if (!targetSku) {
       if (fromBarcodeScan) {
         setScannerEnabled(true);
@@ -928,8 +753,8 @@ export default function ScanScreen() {
       return;
     }
 
-    const canonicalSku = requestedSku || extractSkuFromSearchUrl(targetSku) || String(targetSku);
-    const isURL = originalWasUrl || isProductUrlInput(targetSku);
+    const canonicalSku = optRequestedSku || extractSkuFromSearchUrl(targetSku) || String(targetSku);
+    const isURL = optOriginalWasUrl || isProductUrlInput(targetSku);
 
     // Increment request counter — any response with a stale ID is discarded
     const thisRequestId = ++searchRequestRef.current;
@@ -943,8 +768,6 @@ export default function ScanScreen() {
     setZoomImageUrls([]);
     setCompingFallbackTried(false);
     setSingleImageFallbackTried(false);
-    setStore071MergedCode(null);
-    setStore071MergedCodes([]);
 
     try {
       const storeId = await AsyncStorage.getItem('storeId') || '071';
@@ -973,7 +796,7 @@ export default function ScanScreen() {
 
         if (!backgroundAttempted) {
           setError('Micro Center requested verification. Attempting automatic solver...');
-          const backgroundOutcome: any = await runBackgroundChallengeFlow((result as any).challenge, canonicalSku);
+          const backgroundOutcome: any = await solveBackgroundChallenge((result as any).challenge, canonicalSku);
           if (backgroundOutcome?.status === 'solved') {
             if (backgroundOutcome?.userAgent) {
               setScraperUserAgent(backgroundOutcome.userAgent);
@@ -982,7 +805,7 @@ export default function ScanScreen() {
               ? backgroundOutcome.finalUrl
               : targetSku;
             console.log('[handleSearch] Background verification succeeded. Retrying without popup.');
-            return handleSearch(backgroundRetryTarget, isUPC, fromBarcodeScan, false, true, canonicalSku, isURL);
+            return handleSearch(backgroundRetryTarget, { isUPC, fromBarcodeScan, backgroundAttempted: true, requestedSku: canonicalSku, originalWasUrl: isURL });
           }
         }
 
@@ -1000,7 +823,7 @@ export default function ScanScreen() {
             ? challengeOutcome.finalUrl
             : targetSku;
           console.log('[handleSearch] Challenge solved. Retrying SKU fetch once.');
-          return handleSearch(retryTarget, isUPC, fromBarcodeScan, true, true, canonicalSku, isURL);
+          return handleSearch(retryTarget, { isUPC, fromBarcodeScan, challengeAttempted: true, backgroundAttempted: true, requestedSku: canonicalSku, originalWasUrl: isURL });
         }
 
         const canceledMessage = challengeOutcome?.reason === 'dismissed'
@@ -1045,7 +868,7 @@ export default function ScanScreen() {
         // Codes often redirect to SKUs, so this is usually a success case.
         if (isUPC || isURL || !isNumericSku) {
            console.log("Auto-redirecting mismatch for Code/UPC/URL. Loading:", result.foundSku);
-           handleSearch(result.foundSku, false);
+           handleSearch(result.foundSku);
         } else if (!mismatchAlertActive.current) {
            // Mismatch on a proper 6-digit SKU. Show alert with options (at most once at a time).
            mismatchAlertActive.current = true;
@@ -1065,7 +888,7 @@ export default function ScanScreen() {
                   text: "View Found Product", 
                   onPress: () => {
                     mismatchAlertActive.current = false;
-                    handleSearch(result.foundSku, false);
+                    handleSearch(result.foundSku);
                   }
                 }
               ]
@@ -1084,8 +907,6 @@ export default function ScanScreen() {
        // If it was a URL, update the input field to the clean SKU so it looks nice
        if (isURL) setSku(result.sku);
        setData(finalData);
-       setStore071MergedCode(lookupStore071MergedCode(String(finalData.sku ?? '')));
-       setStore071MergedCodes(lookupStore071MergedCodes(String(finalData.sku ?? '')));
        setZoomImageUrls(result.imageUrls || []);
        setCompingFallbackTried(false);
       setSingleImageFallbackTried(false);
@@ -1095,8 +916,6 @@ export default function ScanScreen() {
     } else {
       const finalData = { ...result, sku: canonicalSku };
       setData(finalData);
-      setStore071MergedCode(lookupStore071MergedCode(String(finalData.sku ?? '')));
-      setStore071MergedCodes(lookupStore071MergedCodes(String(finalData.sku ?? '')));
       setZoomImageUrls(result.imageUrls || []);
       setCompingFallbackTried(false);
       setSingleImageFallbackTried(false);
@@ -1141,16 +960,16 @@ export default function ScanScreen() {
     if (typeof processedData === 'object' && processedData.isUPC) {
       setSku(processedData.value);
       setScanning(false);
-      handleSearch(processedData.value, true, true); // isUPC=true, fromBarcodeScan=true
+      handleSearch(processedData.value, { isUPC: true, fromBarcodeScan: true });
     } else if (typeof processedData === 'object' && processedData.isURL) {
       // Handle URL if needed, for now just pass value
       setSku(processedData.value);
       setScanning(false);
-      handleSearch(processedData.value, false, true); // isUPC=false, fromBarcodeScan=true
+      handleSearch(processedData.value, { fromBarcodeScan: true });
     } else {
       setSku(processedData);
       setScanning(false);
-      handleSearch(processedData, false, true); // isUPC=false, fromBarcodeScan=true
+      handleSearch(processedData, { fromBarcodeScan: true });
     }
   };
 
@@ -1320,7 +1139,7 @@ export default function ScanScreen() {
                 onPress={() => {
                   setTextSearchMode(false);
                   setTextResults([]);
-                  handleSearch(item.url, false, false);
+                  handleSearch(item.url);
                 }}
               >
                 {item.imageUrl && (
@@ -1493,20 +1312,6 @@ export default function ScanScreen() {
                   </>
                 )}
               </View>
-              {storeId === '071' && (
-                <GlassButton
-                  style={styles.storeDatCodeButton}
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    const codes = store071MergedCodes.length > 0
-                      ? store071MergedCodes
-                      : (store071MergedCode ? [store071MergedCode] : []);
-                    openStoreMapForCodes(codes);
-                  }}
-                >
-                  <Text style={styles.storeDatCodeButtonText}>Find Item</Text>
-                </GlassButton>
-              )}
             </View>
           </View>
 
@@ -1710,7 +1515,7 @@ export default function ScanScreen() {
                   onPress={async () => {
                     if (!pendingListItem) return;
                     const raw = await AsyncStorage.getItem(LIST_STORAGE_KEY);
-                    const allLists: ItemList[] = raw ? JSON.parse(raw) : [];
+                    const allLists: ItemList[] = safeParse(raw, []);
                     const updated = allLists.map(l =>
                       l.id === list.id ? { ...l, items: [...l.items, pendingListItem] } : l
                     );
@@ -1741,10 +1546,6 @@ export default function ScanScreen() {
         transparent={true}
         onRequestClose={() => {
           resetImageTransform();
-          setMapOverlayNotice(null);
-          setMapMatches([]);
-          setMapMatchIndex(0);
-          setMapSearchCode(null);
           setFullScreenImage(null);
         }}
       >
@@ -1760,25 +1561,19 @@ export default function ScanScreen() {
                 onEnded={onPinchEnd}
                 simultaneousHandlers={['pan']}
               >
-                <Animated.View
+                        <Animated.View
                   style={[
                     styles.fullScreenTouchable,
-                    fullScreenImage === STORE_071_MAP_IMAGE
-                      ? { width: MAP_LOGICAL_W, height: MAP_LOGICAL_H }
-                      : styles.fullScreenFit,
+                    styles.fullScreenFit,
                     animatedStyle,
                   ]}
                 >
                   {fullScreenImage !== null && (
                     <Image
                       source={typeof fullScreenImage === 'number' ? fullScreenImage : { uri: fullScreenImage }}
-                      style={
-                        fullScreenImage === STORE_071_MAP_IMAGE
-                          ? { width: MAP_LOGICAL_W, height: MAP_LOGICAL_H }
-                          : styles.fullScreenImage
-                      }
-                      resizeMode={fullScreenImage === STORE_071_MAP_IMAGE ? 'stretch' : 'contain'}
-                      resizeMethod={fullScreenImage === STORE_071_MAP_IMAGE && Platform.OS === 'android' ? 'none' : 'scale'}
+                      style={styles.fullScreenImage}
+                      resizeMode="contain"
+                      resizeMethod="scale"
                       fadeDuration={0}
                     />
                   )}
@@ -1786,31 +1581,11 @@ export default function ScanScreen() {
               </PinchGestureHandler>
             </Animated.View>
           </PanGestureHandler>
-          {fullScreenImage === STORE_071_MAP_IMAGE && mapMatches.length > 0 ? (
-            <View style={styles.mapNoticeBanner}>
-              <GlassButton style={styles.mapArrowButton} onPress={handlePrevMapMatch}>
-                <Ionicons name="chevron-back" size={20} color="white" />
-              </GlassButton>
-              <Text style={styles.mapNoticeText} numberOfLines={1}>
-                {`Map Location: ${(mapMatches[mapMatchIndex]?.text || mapSearchCode || 'Unknown')} (${mapMatchIndex + 1}/${mapMatches.length})`}
-              </Text>
-              <GlassButton style={styles.mapArrowButton} onPress={handleNextMapMatch}>
-                <Ionicons name="chevron-forward" size={20} color="white" />
-              </GlassButton>
-            </View>
-          ) : mapOverlayNotice ? (
-            <View style={styles.mapNoticeBanner}>
-              <Text style={styles.mapNoticeText}>{mapOverlayNotice}</Text>
-            </View>
-          ) : null}
+
           <GlassButton
             style={styles.closeButton}
             onPress={() => {
               resetImageTransform();
-              setMapOverlayNotice(null);
-              setMapMatches([]);
-              setMapMatchIndex(0);
-              setMapSearchCode(null);
               setFullScreenImage(null);
             }}
           >
@@ -1826,56 +1601,7 @@ export default function ScanScreen() {
         department={department}
       />
 
-      {backgroundChallenge ? (
-        <View style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}>
-          <WebView
-            source={{ uri: backgroundChallenge.url }}
-            applicationNameForUserAgent={Platform.OS === 'ios' ? 'Version/17.0 Safari/604.1' : undefined}
-            allowsInlineMediaPlayback={true}
-            mediaPlaybackRequiresUserAction={false}
-            javaScriptEnabled={true}
-            domStorageEnabled={true}
-            originWhitelist={['*']}
-            injectedJavaScript={CHALLENGE_SIGNAL_SCRIPT}
-            onMessage={(event) => {
-              try {
-                const message = JSON.parse(event.nativeEvent.data || '{}');
-                if (message.type !== 'pageSignals') return;
-
-                const signalUrl = String(message.url || '');
-                const signalTitle = String(message.title || '');
-                const hasChallenge = Boolean(message.hasChallenge);
-                const expectedSku = String(backgroundChallenge?.searchedSku || '').trim();
-
-                if (typeof message.userAgent === 'string' && message.userAgent.trim()) {
-                  backgroundChallengeUserAgentRef.current = message.userAgent;
-                }
-
-                if (!/microcenter\.com/i.test(signalUrl)) return;
-                if (isChallengeSignal(signalUrl, signalTitle, hasChallenge)) return;
-
-                 if (expectedSku) {
-                  const normalizedUrl = decodeURIComponent(signalUrl);
-                  const hasMatchingSearchSku = normalizedUrl.includes(`Ntt=${expectedSku}`) || normalizedUrl.includes(`ntt=${expectedSku}`);
-                  const isProductPage = /\/product\/\d+\//i.test(signalUrl);
-                  if (!hasMatchingSearchSku && !isProductPage) return;
-                }
-
-                resolveBackgroundChallenge({
-                  status: 'solved',
-                  finalUrl: signalUrl,
-                  userAgent: backgroundChallengeUserAgentRef.current,
-                });
-              } catch (error) {
-                console.log('[background challenge] message parse error', error);
-              }
-            }}
-            onError={() => {
-              resolveBackgroundChallenge({ status: 'failed', reason: 'webviewError' });
-            }}
-          />
-        </View>
-      ) : null}
+      {hiddenWebView}
     </View>
   );
 }
@@ -1931,8 +1657,7 @@ const styles = StyleSheet.create({
   ratingStarFillWrap: { position: 'absolute', left: 0, top: 0, overflow: 'hidden', height: 20 },
   ratingStarFill: { fontSize: 18, color: '#FFB800' },
   reviewText: { fontSize: 14, fontWeight: '500' },
-  storeDatCodeButton: { backgroundColor: '#C00', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 7 },
-  storeDatCodeButtonText: { color: 'white', fontSize: 13, fontWeight: '700' },
+
   productMetaBlock: { marginBottom: 5 },
   servicesContainer: { marginVertical: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#ddd' },
   serviceText: { fontSize: 14, marginLeft: 10, marginBottom: 4 },
@@ -1951,9 +1676,7 @@ const styles = StyleSheet.create({
     fullScreenFit: { flex: 1, width: '100%' },
   fullScreenImage: { width: '100%', height: '100%' },
   closeButton: { position: 'absolute', top: 50, right: 20, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 25, padding: 5 },
-  mapNoticeBanner: { position: 'absolute', left: 16, right: 16, top: 122, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  mapNoticeText: { color: 'white', fontSize: 13, fontWeight: '600', flex: 1, textAlign: 'center' },
-  mapArrowButton: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.18)' },
+
   plansButton: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, gap: 6 },
   plansButtonText: { fontSize: 14, fontWeight: '700' },
   titleEditOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },

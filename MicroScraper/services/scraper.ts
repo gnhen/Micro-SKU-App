@@ -21,6 +21,34 @@ const waitForRateLimit = async (onStatus) => {
   }
 };
 
+/**
+ * Retry a fetch with exponential backoff for transient failures.
+ * Retries up to `maxRetries` times with 1s, 2s, 4s delays.
+ */
+const fetchWithRetry = async (url, headers, maxRetries = 2, onStatus?: (msg: string) => void): Promise<Response> => {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, { headers });
+      // Retry on 5xx and network errors
+      if (response.status >= 500) {
+        throw new Error(`Server error ${response.status}`);
+      }
+      return response;
+    } catch (err) {
+      lastError = err as Error;
+      if (attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s
+        const msg = `Transient error (${err?.message || err}), retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`;
+        console.log(`[fetchWithRetry] ${msg}`);
+        if (onStatus) onStatus(msg);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastError;
+};
+
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -84,18 +112,22 @@ const cartItemMatchesProduct = (item, sku, productId) => {
 
 // Best-effort removal of the line item we added, so the trick leaves the cart as it found it.
 // The anti-forgery token and item identifiers are rendered into the cart HTML.
-const removeCartLineItem = async (cartHtml, onStatus) => {
+// IMPORTANT: We must target the correct item — the cart may contain other entries.
+// We extract ItemId/CompositeKey from the cartItems JSON (which we parse earlier)
+// rather than blindly grabbing the first <form> on the page.
+const removeCartLineItem = async (cartHtml, itemId, compositeKey, onStatus) => {
   try {
-    const removeMatch = cartHtml.match(
-      /action="\/cart\/cartremove"[\s\S]*?__RequestVerificationToken[^>]*value="([^"]+)"[\s\S]*?name="ItemId"[^>]*value="(\d+)"[\s\S]*?name="CompositeKey"[^>]*value="([^"]+)"/i
-    );
-    if (!removeMatch) return;
+    if (!itemId || !compositeKey) return;
+
+    // Extract the single-page anti-forgery token
+    const tokenMatch = cartHtml.match(/__RequestVerificationToken[^>]*value="([^"]+)"/i);
+    if (!tokenMatch) return;
 
     await waitForRateLimit(onStatus);
     const body = new URLSearchParams({
-      __RequestVerificationToken: removeMatch[1],
-      ItemId: removeMatch[2],
-      CompositeKey: removeMatch[3],
+      __RequestVerificationToken: tokenMatch[1],
+      ItemId: String(itemId),
+      CompositeKey: String(compositeKey),
     }).toString();
 
     await fetch(`${CART_URL}/cart/cartremove`, {
@@ -119,6 +151,9 @@ export const resolveExactStock = async ({ productId, sku, storeId, refererUrl, o
   if (!productId || !sku || !normalizedStoreId) return null;
 
   try {
+    // Item identifiers extracted from cart JSON to target the correct removal
+    let removeItemId = null;
+    let removeCompositeKey = null;
     // 1. Add one unit to the session cart.
     await waitForRateLimit(onStatus);
     if (onStatus) onStatus('Checking exact stock...');
@@ -152,7 +187,7 @@ export const resolveExactStock = async ({ productId, sku, storeId, refererUrl, o
 
     // 2. The cart page leaks the exact on-hand quantity for every line item.
     await waitForRateLimit(onStatus);
-    const cartResponse = await fetch(CART_URL, { headers: getRequestHeaders() });
+    const cartResponse = await fetchWithRetry(CART_URL, getRequestHeaders(), 2, onStatus);
     let quantity = null;
     let cartHtml = '';
 
@@ -166,6 +201,9 @@ export const resolveExactStock = async ({ productId, sku, storeId, refererUrl, o
             const target = items.find((it) => cartItemMatchesProduct(it, sku, productId)) || items[0];
             const qoh = Number(target && target.QuantityInStock);
             if (Number.isFinite(qoh)) quantity = Math.max(0, qoh);
+            // Capture identifiers needed to remove this exact item later
+            if (target?.ItemId) removeItemId = target.ItemId;
+            if (target?.CompositeKey) removeCompositeKey = target.CompositeKey;
           }
         } catch (error) {
           console.log('[resolveExactStock] Could not parse cartItems:', error?.message || error);
@@ -173,8 +211,8 @@ export const resolveExactStock = async ({ productId, sku, storeId, refererUrl, o
       }
     }
 
-    // 3. Clean up the temporary line item.
-    if (cartHtml) await removeCartLineItem(cartHtml, onStatus);
+    // 3. Clean up the temporary line item (targeted to the exact item we added).
+    if (cartHtml && removeItemId && removeCompositeKey) await removeCartLineItem(cartHtml, removeItemId, removeCompositeKey, onStatus);
     if (onStatus) onStatus('');
 
     return quantity;
@@ -680,6 +718,84 @@ const extractSpecs = (html) => {
   return specs;
 };
 
+/**
+ * Extract real image URLs from a Micro Center product page HTML.
+ * Tries multiple strategies: JSON-LD, window vars, <img> tags, and data attributes.
+ * Falls back to the generated URL pattern if nothing is found.
+ */
+const extractImageUrlsFromHtml = (productHtml, productId, sku) => {
+  const found = new Set<string>();
+
+  // Strategy 1: JSON-LD structured data (schema.org Product)
+  const jsonLdMatch = productHtml.match(/<script\s+type=["']application\/ld\+json["']>([\s\S]*?)<\/script>/gi);
+  if (jsonLdMatch) {
+    for (const block of jsonLdMatch) {
+      try {
+        const obj = JSON.parse(block);
+        const images = obj?.image;
+        if (Array.isArray(images)) {
+          for (const img of images) {
+            if (typeof img === 'string' && img.startsWith('http')) found.add(img);
+            else if (typeof img === 'object' && img?.contentUrl) found.add(img.contentUrl);
+            else if (typeof img === 'object' && img?.url) found.add(img.url);
+          }
+        } else if (typeof images === 'string' && images.startsWith('http')) {
+          found.add(images);
+        }
+      } catch { /* ignore parse errors */ }
+    }
+  }
+
+  // Strategy 2: window.<var> = {...} patterns that contain image arrays
+  const varMatches = productHtml.matchAll(/(?:window|var|const|let)\s*(\w*[Pp]roduct\w*[Dd]ata\w*|\w*[Ii]mage\w*\w*)\s*=\s*({[\s\S]*?});/g);
+  for (const match of varMatches) {
+    try {
+      const jsonStr = match[1];
+      const obj = JSON.parse(jsonStr);
+      const images = obj?.image || obj?.images || obj?.productImage || obj?.productImages;
+      if (Array.isArray(images)) {
+        for (const img of images) {
+          if (typeof img === 'string' && img.startsWith('http')) found.add(img);
+          else if (typeof img === 'object' && img?.contentUrl) found.add(img.contentUrl);
+          else if (typeof img === 'object' && img?.url) found.add(img.url);
+        }
+      } else if (typeof images === 'string' && images.startsWith('http')) {
+        found.add(images);
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Strategy 3: <img> tags with productimage domains
+  const imgMatches = productHtml.matchAll(/<img[^>]+src=["']([^"'>]+productimages[^"']*)["']/gi);
+  for (const match of imgMatches) {
+    if (match[1]) found.add(match[1]);
+  }
+
+  // Strategy 4: data attributes like data-image-url or data-zoom
+  const dataImgMatches = productHtml.matchAll(/data-?[iI]mage?[uU]rl?=["']([^"'>]+)["']/g);
+  for (const match of dataImgMatches) {
+    if (match[1]) found.add(match[1]);
+  }
+
+  // Strategy 5: Generic image URL patterns from productimages.microcenter.com
+  if (found.size === 0) {
+    const genericMatches = productHtml.matchAll(/https?:\/\/productimages\.microcenter\.com\/[^"'\s<>]+/g);
+    for (const match of genericMatches) {
+      if (match[0]) found.add(match[0]);
+    }
+  }
+
+  const uniqueUrls = Array.from(found);
+  // Sort: zoom/full-res URLs first, then comping, then package views
+  uniqueUrls.sort((a, b) => {
+    const aZoom = a.includes('_zoom') ? 0 : a.includes('_comping') ? 1 : 2;
+    const bZoom = b.includes('_zoom') ? 0 : b.includes('_comping') ? 1 : 2;
+    return aZoom - bZoom;
+  });
+
+  return uniqueUrls.length > 0 ? uniqueUrls : null;
+};
+
 export const fetchProductBySku = async (sku, storeId = '071', onStatus, options = {}) => {
   try {
     console.log(`[fetchProductBySku] Starting fetch for SKU: ${sku}, storeId: ${storeId}`);
@@ -738,7 +854,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus, options 
       console.log(`[fetchProductBySku] Fetching search URL: ${searchUrl}`);
       
       await waitForRateLimit(onStatus); // Wait to avoid rate limiting
-      const response = await fetch(searchUrl, { headers: getRequestHeaders() });
+      const response = await fetchWithRetry(searchUrl, getRequestHeaders(), 2, onStatus);
       console.log(`[fetchProductBySku] Search response status: ${response.status}, URL: ${response.url}`);
 
       const searchResponseUrl = response.url || searchUrl;
@@ -940,7 +1056,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus, options 
     if (typeof productHtml === 'undefined') {
         console.log(`[fetchProductBySku] Fetching product page: ${productUrl}`);
         await waitForRateLimit(onStatus); // Wait to avoid rate limiting
-      const productResponse = await fetch(productUrl, { headers: getRequestHeaders() });
+      const productResponse = await fetchWithRetry(productUrl, getRequestHeaders(), 2, onStatus);
         console.log(`[fetchProductBySku] Product response status: ${productResponse.status}`);
         productHtml = await productResponse.text();
         if (productResponse.status === 403 || isChallengePage(productHtml, productResponse.url || productUrl)) {
@@ -1112,21 +1228,27 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus, options 
       upc = decodeHtml(upcFromHtml[1]).trim();
     }
 
-    const imageUrls = [];
-    
-    for (let imgNum = 1; imgNum <= 10; imgNum++) {
-      const imgNumStr = imgNum.toString().padStart(2, '0');
-      imageUrls.push(`https://productimages.microcenter.com/${productId}_${sku}_${imgNumStr}_front_zoom.jpg`);
-    }
-    
-    for (let imgNum = 11; imgNum <= 20; imgNum++) {
-      const imgNumStr = (imgNum - 10).toString().padStart(2, '0');
-      imageUrls.push(`https://productimages.microcenter.com/${productId}_${sku}_${imgNumStr}_package_zoom.jpg`);
+    // Try to extract real image URLs from the product page HTML.
+    // Falls back to generated URLs if nothing is found.
+    let imageUrls: string[] = [];
+    const extracted = extractImageUrlsFromHtml(productHtml, productId, sku);
+    if (extracted && extracted.length > 0) {
+      imageUrls = extracted;
+      console.log(`[fetchProductBySku] Extracted ${imageUrls.length} real image URLs from page`);
+    } else {
+      // Fallback: generate URLs using the known pattern.
+      for (let imgNum = 1; imgNum <= 10; imgNum++) {
+        const imgNumStr = imgNum.toString().padStart(2, '0');
+        imageUrls.push(`https://productimages.microcenter.com/${productId}_${sku}_${imgNumStr}_front_zoom.jpg`);
+      }
+      for (let imgNum = 11; imgNum <= 20; imgNum++) {
+        const imgNumStr = (imgNum - 10).toString().padStart(2, '0');
+        imageUrls.push(`https://productimages.microcenter.com/${productId}_${sku}_${imgNumStr}_package_zoom.jpg`);
+      }
+      console.log('[fetchProductBySku] No real URLs found; generated 20 fallback URLs');
     }
     
     const imageUrl = imageUrls[0];
-    
-    console.log('Generated image URLs (front 01-10 + package 01-10):', imageUrls.length);
 
     const structuredSpecs = extractSpecsFromFeatures(productHtml);
     const detailedSpecs = structuredSpecs.length > 0 ? structuredSpecs : extractSpecs(productHtml);
@@ -1341,7 +1463,7 @@ export const fetchTextSearch = async (query, storeId = '071') => {
     console.log(`[fetchTextSearch] Fetching: ${searchUrl}`);
 
     await waitForRateLimit();
-    const response = await fetch(searchUrl, { headers: getRequestHeaders() });
+    const response = await fetchWithRetry(searchUrl, getRequestHeaders(), 2);
 
     const searchResponseUrl = response.url || searchUrl;
     let searchHtmlText = null;

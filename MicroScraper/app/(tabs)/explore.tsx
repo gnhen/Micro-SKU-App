@@ -4,7 +4,7 @@ import {
   StyleSheet, Switch, StatusBar, Alert, ActivityIndicator, Linking, Image
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect } from '@react-navigation/native';
+import { useRouter, useFocusEffect, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { STORES } from '../../constants';
 import versionInfo from '../../version.json';
@@ -29,9 +29,12 @@ import {
 type FeedbackMode = 'feedback' | 'references';
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const isXP = colorScheme === 'xp';
+  const pathname = usePathname();
+  const cameFromMore = pathname === '/tab-proxy';
   const accent = isXP ? Colors.xp.tint : '#0173DF';
   const switchOnColor = isXP ? Colors.xp.inStockGreen : '#0173DF';
   const xpDialog = isXP && xpDialogTitle(20, 10);
@@ -177,7 +180,18 @@ export default function SettingsScreen() {
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.header, { color: theme.text }, isXP && XP_TITLE_BAR]}>Settings</Text>
+        <View style={styles.headerRow}>
+          {cameFromMore && (
+            <TouchableOpacity
+              onPress={() => router.back()}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={styles.backButton}
+            >
+              <Ionicons name="chevron-back" size={26} color={accent} />
+            </TouchableOpacity>
+          )}
+          <Text style={[styles.header, { color: theme.text, marginBottom: 0 }, isXP && XP_TITLE_BAR]}>Settings</Text>
+        </View>
 
         {/* ── Department ── */}
         <Text style={[styles.sectionLabel, { color: sectionLabelColor }, xpFont]}>DEPARTMENT</Text>
@@ -623,7 +637,9 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container:    { flex: 1 },
   scrollContent:{ padding: 20, paddingTop: 70, paddingBottom: 20 + TAB_BAR_CLEARANCE },
-  header:       { fontSize: 24, fontWeight: 'bold', marginBottom: 20 },
+  headerRow:    { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  backButton:   { marginRight: 6 },
+  header:       { fontSize: 24, fontWeight: 'bold', marginBottom: 0 },
   sectionLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 4, marginTop: 4 },
   settingRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1 },
   tabRowLeft:   { flexDirection: 'row', alignItems: 'center', gap: 8 },

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type TabRoute = 'index' | 'list' | 'pcbuilder' | 'history' | 'explore';
@@ -134,6 +134,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>('system');
   const [appIcon, setAppIconState] = useState<AppIconPreference>('default');
 
+  // Gate children until persisted settings load — prevents the tab/department
+  // flash that occurs when defaults render before AsyncStorage resolves.
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+
   // Load persisted settings
   useEffect(() => {
     (async () => {
@@ -155,6 +159,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           setAppIconState(icon as AppIconPreference);
         }
       } catch (_) {}
+      finally {
+        setSettingsLoaded(true);
+      }
     })();
   }, []);
 
@@ -210,6 +217,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   };
 
   const { visibleTabs, overflowTabs, showMoreTab } = computeVisibility(selectedTabs);
+
+  // Don't render children until settings load — prevents tab/department flash.
+  if (!settingsLoaded) return null;
 
   return (
     <SettingsContext.Provider

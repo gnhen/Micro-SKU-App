@@ -2,12 +2,11 @@
   "expo": {
     "name": "Micro SKU App",
     "slug": "MicroScraper",
-    "version": "0.4.107",
+    "version": "0.4.108",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "microscraper",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.microscraper.app",
       "buildNumber": "6",
@@ -35,7 +34,6 @@
       "permissions": [
         "CAMERA"
       ],
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {

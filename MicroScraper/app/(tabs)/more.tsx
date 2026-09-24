@@ -16,7 +16,7 @@ import { useSettings, TabRoute } from '@/contexts/SettingsContext';
 // ─── Tab metadata ─────────────────────────────────────────────────────────────
 
 const TAB_META: Record<TabRoute, { label: string; icon: string; route: string }> = {
-  index:     { label: 'Scan',       icon: 'scan',          route: '/(tabs)/' },
+  index:     { label: 'Scan',       icon: 'scan',          route: '/(tabs)/index' },
   list:      { label: 'List',       icon: 'list',          route: '/(tabs)/list' },
   pcbuilder: { label: 'PC Builder', icon: 'hardware-chip', route: '/(tabs)/pcbuilder' },
   history:   { label: 'History',    icon: 'time',          route: '/(tabs)/history' },
@@ -29,7 +29,7 @@ export default function MoreScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const router = useRouter();
-  const { overflowTabs } = useSettings();
+  const { overflowTabs, selectedTabs, visibleTabs } = useSettings();
   const isXP = colorScheme === 'xp';
 
   const theme = {
@@ -39,11 +39,8 @@ export default function MoreScreen() {
     border: colors.border,
   };
 
-  // Always show Settings first, then overflow tabs in order
-  const items: TabRoute[] = [
-    'explore',
-    ...overflowTabs.filter(t => t !== 'explore'),
-  ];
+  // Show all selected tabs that aren't currently visible in the tab bar
+  const items: TabRoute[] = selectedTabs.filter(t => !visibleTabs.includes(t));
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -57,7 +54,7 @@ export default function MoreScreen() {
             <TouchableOpacity
               key={route}
               style={[styles.row, { backgroundColor: theme.card, borderColor: theme.border }, isXP && XP_WINDOW]}
-              onPress={() => router.push(meta.route as any)}
+              onPress={() => router.push({ pathname: '/tab-proxy' as any, params: { name: route } })}
               activeOpacity={0.7}
             >
               <View style={styles.iconWrap}>

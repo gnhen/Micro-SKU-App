@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: MicroScraper/package-lock.json
+      - run: npm ci
+        working-directory: MicroScraper
+      - run: npx tsc --noEmit
+        working-directory: MicroScraper
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: MicroScraper/package-lock.json
+      - run: npm ci
+        working-directory: MicroScraper
+      - run: npx eslint .
+        working-directory: MicroScraper
+
+  dead-code-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          # Verify no imports of deleted dead-code files remain
+          grep -r "from.*app\.js" MicroScraper/app MicroScraper/components MicroScraper/services 2>/dev/null && exit 1 || true
+          grep -r "reset-project" MicroScraper/package.json MicroScraper/scripts 2>/dev/null && exit 1 || true
+          echo "Dead-code check passed"

@@ -4,11 +4,12 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import React, { useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router/react-navigation';
 import { Colors, TAB_BAR_CLEARANCE, XP_FONT, XP_TITLE_BAR } from '@/constants/theme';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { GlassButton } from '@/components/ui/glass-button';
+import { safeParse } from '@/utils/safeParse';
 
 export default function HistoryScreen() {
   const colorScheme = useColorScheme();
@@ -35,7 +36,7 @@ export default function HistoryScreen() {
     try {
       const savedHistory = await AsyncStorage.getItem('searchHistory');
       if (savedHistory) {
-        setHistory(JSON.parse(savedHistory));
+        setHistory(safeParse(savedHistory, []));
       }
     } catch (error) {
       console.error('Error loading history:', error);
@@ -76,13 +77,9 @@ export default function HistoryScreen() {
     }
   };
 
-  const handleHistoryItemPress = async (sku: string) => {
-    try {
-      await AsyncStorage.setItem('pendingSearch', sku);
-      router.push('/');
-    } catch (error) {
-      console.error('Error navigating to item:', error);
-    }
+  const handleHistoryItemPress = (sku: string) => {
+    // Use expo-router params instead of AsyncStorage to avoid double-fire races.
+    router.push({ pathname: '/', params: { pendingSearch: sku } });
   };
 
   const filteredHistory = history.filter((item) => {
@@ -120,9 +117,9 @@ export default function HistoryScreen() {
                 <Text style={styles.clearButtonText}>Clear All History</Text>
               </GlassButton>
 
-              {filteredHistory.map((item, index) => (
+              {filteredHistory.map((item) => (
                 <Swipeable
-                  key={index}
+                  key={item.sku}
                   renderRightActions={() => (
                     <GlassButton
                       style={styles.swipeDeleteBtn}

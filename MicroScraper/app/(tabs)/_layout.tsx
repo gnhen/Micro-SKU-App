@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Icon, Label, NativeTabs } from 'expo-router/unstable-native-tabs';
+import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import React from 'react';
 import { Platform, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -35,33 +35,33 @@ export default function TabLayout() {
         disableTransparentOnScrollEdge={isXP ? true : undefined}
       >
         <NativeTabs.Trigger name="index" hidden={!isVisible('index')}>
-          <Label>Scan</Label>
-          <Icon sf="barcode.viewfinder" />
+          <NativeTabs.Trigger.Label>Scan</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger.Icon sf="barcode.viewfinder" />
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger name="list" hidden={!isVisible('list')}>
-          <Label>List</Label>
-          <Icon sf="list.bullet" />
+          <NativeTabs.Trigger.Label>List</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger.Icon sf="list.bullet" />
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger name="pcbuilder" hidden={!isVisible('pcbuilder')}>
-          <Label>PC Builder</Label>
-          <Icon sf="cpu" />
+          <NativeTabs.Trigger.Label>PC Builder</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger.Icon sf="cpu" />
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger name="history" hidden={!isVisible('history')}>
-          <Label>History</Label>
-          <Icon sf="clock" />
+          <NativeTabs.Trigger.Label>History</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger.Icon sf="clock" />
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger name="explore" hidden={!isVisible('explore')}>
-          <Label>Settings</Label>
-          <Icon sf="gearshape" />
+          <NativeTabs.Trigger.Label>Settings</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger.Icon sf="gearshape" />
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger name="more" hidden={!showMoreTab}>
-          <Label>More</Label>
-          <Icon sf="ellipsis" />
+          <NativeTabs.Trigger.Label>More</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger.Icon sf="ellipsis" />
         </NativeTabs.Trigger>
       </NativeTabs>
     );
@@ -78,62 +78,71 @@ export default function TabLayout() {
         tabBarButton: HapticTab,
       }}>
 
-      {/* Scan — toggleable */}
+      {/* All screens keep href: undefined so they stay registered with the router
+          and remain navigable from the More screen.  Hidden screens get a tabBarButton
+          that renders nothing — the screen stays alive but the tab bar item disappears. */}
+
       <Tabs.Screen
         name="index"
         options={{
           title: 'Scan',
-          href: isVisible('index') ? undefined : null,
+          href: undefined,
+          tabBarButton: isVisible('index') ? undefined : () => null,
+          unmountOnBlur: false,
           tabBarIcon: ({ color, focused }) => isXP ? xpIcon('index', focused) : <Ionicons name="scan" size={28} color={color} />,
         }}
       />
 
-      {/* List */}
       <Tabs.Screen
         name="list"
         options={{
           title: 'List',
-          href: isVisible('list') ? undefined : null,
+          href: undefined,
+          tabBarButton: isVisible('list') ? undefined : () => null,
+          unmountOnBlur: false,
           tabBarIcon: ({ color, focused }) => isXP ? xpIcon('list', focused) : <Ionicons name="list" size={28} color={color} />,
         }}
       />
 
-      {/* PC Builder */}
       <Tabs.Screen
         name="pcbuilder"
         options={{
           title: 'PC Builder',
-          href: isVisible('pcbuilder') ? undefined : null,
+          href: undefined,
+          tabBarButton: isVisible('pcbuilder') ? undefined : () => null,
+          unmountOnBlur: false,
           tabBarIcon: ({ color, focused }) => isXP ? xpIcon('pcbuilder', focused) : <Ionicons name="hardware-chip" size={28} color={color} />,
         }}
       />
 
-      {/* History */}
       <Tabs.Screen
         name="history"
         options={{
           title: 'History',
-          href: isVisible('history') ? undefined : null,
+          href: undefined,
+          tabBarButton: isVisible('history') ? undefined : () => null,
+          unmountOnBlur: false,
           tabBarIcon: ({ color, focused }) => isXP ? xpIcon('history', focused) : <Ionicons name="time" size={28} color={color} />,
         }}
       />
 
-      {/* Settings — hidden when More tab is active */}
       <Tabs.Screen
         name="explore"
         options={{
           title: 'Settings',
-          href: isVisible('explore') ? undefined : null,
+          href: undefined,
+          tabBarButton: isVisible('explore') ? undefined : () => null,
+          unmountOnBlur: false,
           tabBarIcon: ({ color, focused }) => isXP ? xpIcon('explore', focused) : <Ionicons name="settings" size={28} color={color} />,
         }}
       />
 
-      {/* More — visible only when >4 tabs selected */}
+      {/* More is always visible — it's the gateway to overflow / hidden tabs */}
       <Tabs.Screen
         name="more"
         options={{
           title: 'More',
-          href: showMoreTab ? undefined : null,
+          href: undefined,
           tabBarIcon: ({ color, focused }) => isXP ? xpIcon('more', focused) : <Ionicons name="ellipsis-horizontal" size={28} color={color} />,
         }}
       />

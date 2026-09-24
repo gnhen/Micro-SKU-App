@@ -23,7 +23,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { useRouter } from 'expo-router';
+import { useRouter, usePathname } from 'expo-router';
 import { createChallengeRequest } from '@/services/challengeSession';
 import {
   getCategories,
@@ -105,6 +105,8 @@ export default function PCBuilderScreen() {
   const isChallengeActiveRef = useRef(false);
   const scannedComponentsRef = useRef([]);
   const router = useRouter();
+  const pathname = usePathname();
+  const cameFromMore = pathname === '/tab-proxy';
 
   const runChallengeFlow = async (url: string, sku: string = '') => {
     const payload = {
@@ -642,7 +644,17 @@ export default function PCBuilderScreen() {
       <ThemedView style={styles.container}>
         {/* Header */}
         <ThemedView style={[styles.header, { borderBottomColor: colors.border }]}>
-        <ThemedText type="title">PC Builder</ThemedText>
+        <View style={styles.titleRow}>
+          {cameFromMore && (
+            <TouchableOpacity
+              onPress={() => router.back()}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="chevron-back" size={26} color={colors.tint} />
+            </TouchableOpacity>
+          )}
+          <ThemedText type="title">PC Builder</ThemedText>
+        </View>
         <View style={styles.headerButtons}>
           <GlassButton
             style={[styles.headerButton, { backgroundColor: colors.tint }]}
@@ -1207,6 +1219,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     borderBottomWidth: 1,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   headerButtons: {
     flexDirection: 'row',

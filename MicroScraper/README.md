@@ -1,50 +1,94 @@
-# Welcome to your Expo app 👋
+# Micro SKU App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Scan Micro Center product barcodes, look up SKUs, check store inventory, and build PC component lists — all from your phone.
 
-## Get started
+---
 
-1. Install dependencies
+## Installation
 
-   ```bash
-   npm install
-   ```
+### iOS — TestFlight (Recommended)
 
-2. Start the app
+Join the TestFlight beta to install the app directly to your iPhone:
 
-   ```bash
-   npx expo start
-   ```
+[Join the TestFlight Beta](#)
 
-In the output, you'll find options to open the app in a
+### Android — Sideloading
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+1. Visit the [Releases tab](https://github.com/grant/Micro-SKU-App/releases)
+2. Download the latest Android `.apk`
+3. Install on your device
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### iOS — Sideloaded IPA
 
-## Get a fresh project
+1. Visit the [Releases tab](https://github.com/grant/Micro-SKU-App/releases)
+2. Download the latest iOS `.ipa`
+3. Sideload using [Sideloadly](https://sideloadly.io/) or [SideStore](https://sidestore.io/) (SideStore recommended)
+4. Refresh the app every 7 days or sooner (or use the shortcut below)
 
-When you're ready, run:
+### iOS Shortcut Version
+
+For users who cannot or will not sideload, there is an iOS Shortcut that opens product pages directly.
+
+1. [Visit the Shortcut URL](#)
+2. Install the shortcut
+3. Add to Home Screen:
+   - Tap the **⋯** button in the top-right of the shortcut
+   - Tap the shortcut **Name**
+   - Tap **"Add to Home Screen"**
+
+---
+
+## Development
+
+### Prerequisites
+
+- Node.js 18+
+- Expo CLI
+- Xcode (iOS) or Android Studio (Android)
+
+### Setup
 
 ```bash
-npm run reset-project
+npm install
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### Build Android
 
-## Learn more
+```bash
+npx expo run:android
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+### Build iOS
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+npx expo run:ios
+```
 
-## Join the community
+---
 
-Join our community of developers creating universal apps.
+## Features
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- **Barcode Scanner** — Scan product barcodes to instantly look up pricing and inventory
+- **Text Search** — Search by product name, keyword, or SKU
+- **Per-Store Inventory** — Check exact stock levels at your selected Micro Center
+- **PC Builder** — Save components to a personal build list
+- **Search History** — Quickly revisit past lookups
+- **Customizable Tabs** — Rearrange or hide tabs to fit your workflow
+- **Multiple Themes** — System, Light, Dark, and Windows XP
+- **Custom App Icons** — Choose from 9 icon styles
+
+---
+
+## Tech Stack
+
+- [Expo](https://expo.dev) / React Native
+- [expo-router](https://expo.github.io/router/) — File-based routing
+- [SQLite](https://expo.github.io/sqlite/) — Local component storage
+- [expo-camera](https://docs.expo.dev/versions/latest/sdk/camera/) — Barcode scanning
+
+---
+
+## License
+
+Private / All rights reserved.

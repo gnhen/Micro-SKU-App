@@ -1,14 +1,16 @@
 import * as SQLite from 'expo-sqlite';
 
-// Database initialization
-let db = null;
+// Database singleton — renamed to avoid shadowing confusion.
+// Every exported function does `const db = await initDatabase()` which
+// shadows this module-level variable. Using `moduleDb` makes the distinction clear.
+let moduleDb = null;
 
 export const initDatabase = async () => {
-  if (!db) {
-    db = await SQLite.openDatabaseAsync('pcbuilder.db');
+  if (!moduleDb) {
+    moduleDb = await SQLite.openDatabaseAsync('pcbuilder.db');
     await createTables();
   }
-  return db;
+  return moduleDb;
 };
 
 // Create database schema

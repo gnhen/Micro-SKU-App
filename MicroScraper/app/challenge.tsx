@@ -203,7 +203,7 @@ export default function ChallengeScreen() {
         {loading ? <ActivityIndicator size="small" color={colors.tint} /> : null}
         <View style={{ flex: 1 }}>
           <Text style={[styles.statusText, { color: colors.text }]} numberOfLines={1}>{statusText}</Text>
-          <Text style={{ fontSize: 9, color: 'gray' }} numberOfLines={2}>{debugLog}</Text>
+          {__DEV__ && <Text style={{ fontSize: 9, color: 'gray' }} numberOfLines={2}>{debugLog}</Text>}
         </View>
       </View>
 

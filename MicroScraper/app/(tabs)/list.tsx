@@ -16,7 +16,7 @@ import {
   LayoutAnimation,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router/react-navigation';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -27,8 +27,8 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors, TAB_BAR_CLEARANCE, XP_CHROME, XP_FONT, XP_WINDOW, xpDialogTitle } from '@/constants/theme';
 import { GlassButton } from '@/components/ui/glass-button';
 import { fetchProductBySku, setScraperUserAgent } from '../../services/scraper';
-import { createChallengeRequest } from '../../services/challengeSession';
-import { CHALLENGE_SIGNAL_SCRIPT, isChallengeSignal } from '@/services/challengeWebViewUtils';
+import { useChallengeSolver } from '@/hooks/useChallengeSolver';
+import { safeParse } from '@/utils/safeParse';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,10 +128,9 @@ export default function ListScreen() {
   const [sortOrder, setSortOrder] = useState<'default' | 'price_asc' | 'price_desc' | 'name_asc'>('default');
   const [showSortModal, setShowSortModal] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const [backgroundChallenge, setBackgroundChallenge] = useState<any>(null);
-  const backgroundChallengeResolverRef = useRef<any>(null);
-  const backgroundChallengeTimerRef = useRef<any>(null);
-  const backgroundChallengeUserAgentRef = useRef<string | null>(null);
+
+  // Shared background Cloudflare challenge solver.
+  const { solve: solveBackgroundChallenge, hiddenWebView } = useChallengeSolver();
 
   const router = useRouter();
 
@@ -141,18 +140,6 @@ export default function ListScreen() {
     const t = setTimeout(() => setToastMsg(''), 2500);
     return () => clearTimeout(t);
   }, [toastMsg]);
-
-  useEffect(() => {
-    return () => {
-      if (backgroundChallengeTimerRef.current) {
-        clearTimeout(backgroundChallengeTimerRef.current);
-      }
-      if (backgroundChallengeResolverRef.current) {
-        backgroundChallengeResolverRef.current({ status: 'failed', reason: 'unmounted' });
-        backgroundChallengeResolverRef.current = null;
-      }
-    };
-  }, []);
 
   // ── Load data on focus ──────────────────────────────────────────────────────
   useFocusEffect(
@@ -183,7 +170,7 @@ export default function ListScreen() {
     ]);
     if (sid) setStoreId(sid);
 
-    const parsed: ItemList[] = raw ? JSON.parse(raw) : [];
+    const parsed: ItemList[] = safeParse(raw, []);
     setLists(parsed);
 
     if (parsed.length > 0) {
@@ -340,41 +327,13 @@ export default function ListScreen() {
     return promise;
   };
 
-  const resolveBackgroundChallenge = (outcome: any) => {
-    if (backgroundChallengeTimerRef.current) {
-      clearTimeout(backgroundChallengeTimerRef.current);
-      backgroundChallengeTimerRef.current = null;
-    }
-
-    const resolver = backgroundChallengeResolverRef.current;
-    backgroundChallengeResolverRef.current = null;
-    setBackgroundChallenge(null);
-
-    if (resolver) resolver(outcome);
-  };
-
-  const runBackgroundChallengeFlow = async (challenge: any, searchedSku: string) => {
-    const fallbackUrl = `https://www.microcenter.com/search/search_results.aspx?Ntt=${encodeURIComponent(searchedSku)}&searchButton=search&storeid=${storeId}`;
-    const startUrl = challenge?.url || fallbackUrl;
-
-    return new Promise((resolve) => {
-      backgroundChallengeUserAgentRef.current = null;
-      backgroundChallengeResolverRef.current = resolve;
-      setBackgroundChallenge({ url: startUrl, searchedSku });
-
-      backgroundChallengeTimerRef.current = setTimeout(() => {
-        resolveBackgroundChallenge({ status: 'failed', reason: 'timeout' });
-      }, 6500);
-    });
-  };
-
   const fetchProductWithChallengePassthrough = async (searchSku: string, sid: string) => {
     const firstResult = await fetchProductBySku(searchSku, sid);
     if ((firstResult as any).error !== 'challengeRequired') {
       return firstResult;
     }
 
-    const backgroundOutcome: any = await runBackgroundChallengeFlow((firstResult as any).challenge, searchSku);
+    const backgroundOutcome: any = await solveBackgroundChallenge((firstResult as any).challenge, searchSku);
     if (backgroundOutcome?.status === 'solved') {
       if (backgroundOutcome?.userAgent) {
         setScraperUserAgent(backgroundOutcome.userAgent);
@@ -471,7 +430,7 @@ export default function ListScreen() {
       // since this loop can take several seconds and items may have been added/removed meanwhile.
       const refreshedBySku = new Map(updatedItems.map(item => [item.sku, item]));
       const latestRaw = await AsyncStorage.getItem(STORAGE_KEY);
-      const latestLists: ItemList[] = latestRaw ? JSON.parse(latestRaw) : lists;
+      const latestLists: ItemList[] = safeParse(latestRaw, lists);
       const updated = latestLists.map(l =>
         l.id === currentListId
           ? { ...l, items: l.items.map(item => refreshedBySku.get(item.sku) ?? item) }
@@ -519,7 +478,7 @@ export default function ListScreen() {
         };
         // Read fresh copy from storage to avoid stale state
         const latestRaw = await AsyncStorage.getItem(STORAGE_KEY);
-        const latestLists: ItemList[] = latestRaw ? JSON.parse(latestRaw) : [];
+        const latestLists: ItemList[] = safeParse(latestRaw, []);
         const targetList = latestLists.find(l => l.id === currentListId);
         if (targetList?.items.some(i => i.sku === resolvedSku)) {
           setToastMsg(`Already in list: ${newItem.name}`);
@@ -1037,56 +996,7 @@ export default function ListScreen() {
         </View>
       </Modal>
 
-      {backgroundChallenge ? (
-        <View style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}>
-          <WebView
-            source={{ uri: backgroundChallenge.url }}
-            applicationNameForUserAgent={Platform.OS === 'ios' ? 'Version/17.0 Safari/604.1' : undefined}
-            allowsInlineMediaPlayback={true}
-            mediaPlaybackRequiresUserAction={false}
-            javaScriptEnabled={true}
-            domStorageEnabled={true}
-            originWhitelist={['*']}
-            injectedJavaScript={CHALLENGE_SIGNAL_SCRIPT}
-            onMessage={(event) => {
-              try {
-                const message = JSON.parse(event.nativeEvent.data || '{}');
-                if (message.type !== 'pageSignals') return;
-
-                const signalUrl = String(message.url || '');
-                const signalTitle = String(message.title || '');
-                const hasChallenge = Boolean(message.hasChallenge);
-                const expectedSku = String(backgroundChallenge?.searchedSku || '').trim();
-
-                if (typeof message.userAgent === 'string' && message.userAgent.trim()) {
-                  backgroundChallengeUserAgentRef.current = message.userAgent;
-                }
-
-                if (!/microcenter\.com/i.test(signalUrl)) return;
-                if (isChallengeSignal(signalUrl, signalTitle, hasChallenge)) return;
-
-                if (expectedSku) {
-                  const normalizedUrl = decodeURIComponent(signalUrl);
-                  const hasMatchingSearchSku = normalizedUrl.includes(`Ntt=${expectedSku}`) || normalizedUrl.includes(`ntt=${expectedSku}`);
-                  const isProductPage = /\/product\/\d+\//i.test(signalUrl);
-                  if (!hasMatchingSearchSku && !isProductPage) return;
-                }
-
-                resolveBackgroundChallenge({
-                  status: 'solved',
-                  finalUrl: signalUrl,
-                  userAgent: backgroundChallengeUserAgentRef.current,
-                });
-              } catch (error) {
-                console.log('[list background challenge] message parse error', error);
-              }
-            }}
-            onError={() => {
-              resolveBackgroundChallenge({ status: 'failed', reason: 'webviewError' });
-            }}
-          />
-        </View>
-      ) : null}
+      {hiddenWebView}
     </View>
     </GestureHandlerRootView>
   );
