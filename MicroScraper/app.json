@@ -17,18 +17,7 @@
           "com.microscraper.scan"
         ],
         "NSCameraUsageDescription": "This app needs camera access to scan product barcodes.",
-        "ITSAppUsesNonExemptEncryption": false,
-        "UIApplicationSceneManifest": {
-          "UIApplicationSupportsMultipleScenes": false,
-          "UISceneConfigurations": {
-            "UIWindowSceneSessionRoleApplication": [
-              {
-                "UISceneConfigurationName": "Default Configuration",
-                "UISceneDelegateClassName": "$(PRODUCT_MODULE_NAME).SceneDelegate"
-              }
-            ]
-          }
-        }
+        "ITSAppUsesNonExemptEncryption": false
       },
       "appleTeamId": "A8H3U2CM86"
     },
