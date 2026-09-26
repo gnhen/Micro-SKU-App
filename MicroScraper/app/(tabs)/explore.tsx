@@ -53,6 +53,7 @@ export default function SettingsScreen() {
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [appIconModalVisible, setAppIconModalVisible] = useState(false);
+  const [appIconChanging, setAppIconChanging] = useState(false);
 
   const {
     department,
@@ -120,8 +121,8 @@ export default function SettingsScreen() {
     const store = feedbackStore.trim();
     const feedback = feedbackText.trim();
 
-    if (!name || !store || !feedback) {
-      Alert.alert('Missing Information', 'Please fill out Name, Store, and Feedback.');
+    if (!store || !feedback) {
+      Alert.alert('Missing Information', 'Please fill out Store and Feedback. Name is optional — leave it blank to stay anonymous.');
       return;
     }
 
@@ -404,8 +405,10 @@ export default function SettingsScreen() {
                       { borderBottomColor: theme.border },
                       appIcon === option.key && { borderColor: accent, borderWidth: 2 },
                     ]}
-                    onPress={() => {
-                      setAppIcon(option.key);
+                    onPress={async () => {
+                      setAppIconChanging(true);
+                      await setAppIcon(option.key);
+                      setAppIconChanging(false);
                       setAppIconModalVisible(false);
                     }}
                   >
@@ -428,6 +431,18 @@ export default function SettingsScreen() {
               <Text style={{ color: 'white', fontWeight: 'bold' }}>Close</Text>
             </GlassButton>
           </View>
+          {appIconChanging && (
+            <View style={{
+              position: 'absolute',
+              top: 0, left: 0, right: 0, bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.3)',
+              justifyContent: 'center', alignItems: 'center',
+              borderRadius: 10,
+            }}>
+              <ActivityIndicator size="large" color="white" />
+              <Text style={{ color: 'white', marginTop: 8, fontSize: 13 }}>Changing icon…</Text>
+            </View>
+          )}
         </View>
       </Modal>
 

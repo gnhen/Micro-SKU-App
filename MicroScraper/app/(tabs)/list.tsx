@@ -40,6 +40,7 @@ export interface ListItem {
   rawPrice: string;     // display string e.g. "$49.99"
   storeId: string;
   date: string;
+  quantity: number;     // how many of this item
   stockText?: string | null;
   inStock?: boolean | null;
 }
@@ -71,7 +72,7 @@ function parsePrice(raw: string | undefined | null): number | null {
 }
 
 function listTotal(items: ListItem[]): string {
-  const total = items.reduce((sum, item) => sum + (item.price ?? 0), 0);
+  const total = items.reduce((sum, item) => sum + ((item.price ?? 0) * (item.quantity ?? 1)), 0);
   return `$${total.toFixed(2)}`;
 }
 
@@ -119,6 +120,11 @@ export default function ListScreen() {
   const [renameInput, setRenameInput] = useState('');
   const [renamingListId, setRenamingListId] = useState<string | null>(null);
 
+  // Quantity editor
+  const [showQtyModal, setShowQtyModal] = useState(false);
+  const [qtyItemId, setQtyItemId] = useState<string | null>(null);
+  const [qtyInput, setQtyInput] = useState('');
+
   // Bulk scan to list
   const [scanningToList, setScanningToList] = useState(false);
   const [bulkScanEnabled, setBulkScanEnabled] = useState(true);
@@ -155,6 +161,7 @@ export default function ListScreen() {
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {
         if (showSortModal) { setShowSortModal(false); return true; }
         if (showRenameModal) { setShowRenameModal(false); return true; }
+        if (showQtyModal) { setShowQtyModal(false); return true; }
         if (showListPicker) { setShowListPicker(false); return true; }
         if (showAddItemModal) { setShowAddItemModal(false); return true; }
         return false;
@@ -206,9 +213,11 @@ export default function ListScreen() {
 
   const handleShareList = async () => {
     if (!currentList) return;
-    const lines = currentList.items.map((item, idx) =>
-      `${idx + 1}. ${item.name} (SKU: ${item.sku}) — ${item.rawPrice}`
-    );
+    const lines = currentList.items.map((item, idx) => {
+      const qty = item.quantity ?? 1;
+      const qtyStr = qty > 1 ? ` ×${qty}` : '';
+      return `${idx + 1}. ${item.name} (SKU: ${item.sku})${qtyStr} — ${item.rawPrice}`;
+    });
     const total = listTotal(currentList.items);
     const text = `${currentList.name}\n\n${lines.join('\n')}\n\nPre-Tax Total: ${total}`;
     try {
@@ -310,6 +319,41 @@ export default function ListScreen() {
         },
       ]
     );
+  };
+
+  // ── Quantity helpers ────────────────────────────────────────────────────────
+  const openQtyEditor = (item: ListItem) => {
+    setQtyItemId(item.id);
+    setQtyInput(String(item.quantity ?? 1));
+    setShowQtyModal(true);
+  };
+
+  const handleSaveQty = async () => {
+    const qty = parseInt(qtyInput, 10);
+    if (isNaN(qty) || qty < 0) {
+      setQtyInput(String(currentList?.items.find(i => i.id === qtyItemId)?.quantity ?? 1));
+      return;
+    }
+    const updated = lists.map(l =>
+      l.id === currentListId
+        ? { ...l, items: l.items.map(i => i.id === qtyItemId ? { ...i, quantity: qty } : i) }
+        : l
+    );
+    await saveLists(updated, true);
+    setShowQtyModal(false);
+  };
+
+  const adjustQty = async (itemId: string, delta: number) => {
+    const updated = lists.map(l =>
+      l.id === currentListId
+        ? { ...l, items: l.items.map(i => {
+            if (i.id !== itemId) return i;
+            const newQty = Math.max(0, (i.quantity ?? 1) + delta);
+            return { ...i, quantity: newQty };
+          }) }
+        : l
+    );
+    await saveLists(updated, true);
   };
 
   const runChallengeFlow = async (challenge: any, searchedSku: string) => {
@@ -473,6 +517,7 @@ export default function ListScreen() {
           rawPrice: (result as any).sale_price || result.price || '—',
           storeId: sid,
           date: new Date().toISOString(),
+          quantity: 1,
           stockText: result.stockText ?? null,
           inStock: result.inStock ?? null,
         };
@@ -543,6 +588,7 @@ export default function ListScreen() {
         rawPrice: (result as any).sale_price || result.price || '—',
         storeId: sid,
         date: new Date().toISOString(),
+        quantity: 1,
         stockText: result.stockText ?? null,
         inStock: result.inStock ?? null,
       };
@@ -795,16 +841,39 @@ export default function ListScreen() {
                   <Text style={[styles.itemSku, { color: '#aaa' }]}>SKU: {item.sku}</Text>
                 </View>
                 {(() => {
-                  const qty = parseStockQty(item.stockText);
-                  const isOut = item.inStock === false || qty === 0;
-                  const isLow = qty !== null && qty > 0 && qty <= 5;
+                  const stockQty = parseStockQty(item.stockText);
+                  const isOut = item.inStock === false || stockQty === 0;
+                  const isLow = stockQty !== null && stockQty > 0 && stockQty <= 5;
                   if (!isOut && !isLow) return null;
                   return (
                     <View style={[styles.stockBadge, { backgroundColor: isOut ? '#C00' : '#E07000' }]}>
-                      <Text style={styles.stockBadgeText}>{isOut ? 'OUT' : String(qty)}</Text>
+                      <Text style={styles.stockBadgeText}>{isOut ? 'OUT' : String(stockQty)}</Text>
                     </View>
                   );
                 })()}
+                {/* Quantity control */}
+                <View style={styles.qtyControl}>
+                  <TouchableOpacity
+                    onPress={() => adjustQty(item.id, -1)}
+                    style={[styles.qtyBtn, { opacity: (item.quantity ?? 1) === 0 ? 0.3 : 1 }]}
+                  >
+                    <Ionicons name="remove" size={16} color="#888" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => openQtyEditor(item)}
+                    style={styles.qtyValue}
+                  >
+                    <Text style={[styles.qtyValueText, { color: theme.text }]}>
+                      {item.quantity ?? 1}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => adjustQty(item.id, 1)}
+                    style={styles.qtyBtn}
+                  >
+                    <Ionicons name="add" size={16} color="#888" />
+                  </TouchableOpacity>
+                </View>
                 <Text style={styles.itemPrice}>{item.rawPrice}</Text>
                 <TouchableOpacity onPress={() => handleRemoveItem(item.id)} style={styles.removeBtn}>
                   <Ionicons name="close-circle-outline" size={22} color="#C00" />
@@ -969,6 +1038,35 @@ export default function ListScreen() {
         </View>
       </Modal>
 
+      {/* ── Quantity editor modal ── */}
+      <Modal visible={showQtyModal} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { backgroundColor: theme.card }, isXP && XP_WINDOW]}>
+            <Text style={[styles.modalTitle, { color: theme.text }, xpDialog]}>Edit Quantity</Text>
+            <TextInput
+              style={[styles.input, { color: theme.text, borderColor: theme.border, textAlign: 'center', fontSize: 24 }]}
+              placeholder="Qty"
+              placeholderTextColor="#aaa"
+              value={qtyInput}
+              onChangeText={setQtyInput}
+              keyboardType="number-pad"
+              autoFocus
+              selectTextOnFocus
+              onSubmitEditing={handleSaveQty}
+            />
+            <GlassButton style={styles.primaryBtn} onPress={handleSaveQty}>
+              <Text style={styles.primaryBtnText}>Save</Text>
+            </GlassButton>
+            <GlassButton
+              style={styles.closeBtn}
+              onPress={() => setShowQtyModal(false)}
+            >
+              <Text style={styles.closeBtnText}>Cancel</Text>
+            </GlassButton>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Sort modal ── */}
       <Modal visible={showSortModal} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
@@ -1025,6 +1123,10 @@ const styles = StyleSheet.create({
   itemInfo:        { flex: 1 },
   itemName:        { fontSize: 14, fontWeight: '600', marginBottom: 2 },
   itemSku:         { fontSize: 12 },
+  qtyControl:      { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 70, justifyContent: 'flex-end' },
+  qtyBtn:          { width: 28, height: 28, borderRadius: 14, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' },
+  qtyValue:        { paddingHorizontal: 8, alignItems: 'center' },
+  qtyValueText:    { fontSize: 15, fontWeight: '700', minWidth: 24, textAlign: 'center' },
   itemPrice:       { fontSize: 16, fontWeight: 'bold', color: '#C00', minWidth: 60, textAlign: 'right' },
   removeBtn:       { padding: 4 },
   fabRow:          { position: 'absolute', bottom: 24 + TAB_BAR_CLEARANCE, right: 24, flexDirection: 'row', alignItems: 'center', gap: 12 },

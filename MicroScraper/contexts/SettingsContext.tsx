@@ -2,6 +2,18 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// Dynamic app icon requires a custom dev client or production build.
+// In Expo Go the native module doesn't exist, so we fall back to no-op.
+let setNativeAppIcon: (name: string | null) => Promise<string | 'DEFAULT' | false> = async () => 'DEFAULT';
+let getAppIcon: () => Promise<string | 'DEFAULT' | null> = async () => null;
+try {
+  const dynamicIcon = require('@howincodes/expo-dynamic-app-icon');
+  setNativeAppIcon = dynamicIcon.setAppIcon;
+  getAppIcon = dynamicIcon.getAppIcon;
+} catch {
+  // Expo Go / missing native module — no-op fallback
+}
+
 export type TabRoute = 'index' | 'list' | 'pcbuilder' | 'history' | 'explore';
 
 export type Department =
@@ -214,6 +226,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setAppIcon = async (val: AppIconPreference) => {
     setAppIconState(val);
     await AsyncStorage.setItem('appIcon', val);
+    // Actually change the launcher icon on the device
+    try {
+      const iconKey = val === 'default' ? null : val;
+      await setNativeAppIcon(iconKey);
+    } catch (err) {
+      console.warn('[SettingsContext] Failed to change app icon:', err);
+    }
   };
 
   const { visibleTabs, overflowTabs, showMoreTab } = computeVisibility(selectedTabs);

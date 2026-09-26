@@ -2,7 +2,7 @@
   "expo": {
     "name": "Micro SKU App",
     "slug": "MicroScraper",
-    "version": "0.4.108",
+    "version": "0.4.109",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "microscraper",
@@ -17,7 +17,18 @@
           "com.microscraper.scan"
         ],
         "NSCameraUsageDescription": "This app needs camera access to scan product barcodes.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIApplicationSceneManifest": {
+          "UIApplicationSupportsMultipleScenes": false,
+          "UISceneConfigurations": {
+            "UIWindowSceneSessionRoleApplication": [
+              {
+                "UISceneConfigurationName": "Default Configuration",
+                "UISceneDelegateClassName": "$(PRODUCT_MODULE_NAME).SceneDelegate"
+              }
+            ]
+          }
+        }
       },
       "appleTeamId": "A8H3U2CM86"
     },
@@ -56,7 +67,75 @@
       "expo-font",
       "expo-sqlite",
       "expo-web-browser",
-      "expo-asset"
+      "expo-asset",
+      [
+        "@howincodes/expo-dynamic-app-icon",
+        {
+          "default": {
+            "ios": "./assets/images/icon.png",
+            "android": {
+              "foregroundImage": "./assets/images/android-icon-foreground.png",
+              "backgroundColor": "#E6F4FE"
+            }
+          },
+          "black": {
+            "ios": "./assets/icons/micro-sku-black.png",
+            "android": {
+              "foregroundImage": "./assets/icons/micro-sku-black.png",
+              "backgroundColor": "#1a1a1a"
+            }
+          },
+          "gray": {
+            "ios": "./assets/icons/micro-sku-gray.png",
+            "android": {
+              "foregroundImage": "./assets/icons/micro-sku-gray.png",
+              "backgroundColor": "#2d2d2d"
+            }
+          },
+          "green": {
+            "ios": "./assets/icons/micro-sku-green.png",
+            "android": {
+              "foregroundImage": "./assets/icons/micro-sku-green.png",
+              "backgroundColor": "#0a2a1a"
+            }
+          },
+          "purple": {
+            "ios": "./assets/icons/micro-sku-purple.png",
+            "android": {
+              "foregroundImage": "./assets/icons/micro-sku-purple.png",
+              "backgroundColor": "#1a0a2a"
+            }
+          },
+          "salmon": {
+            "ios": "./assets/icons/micro-sku-salmon.png",
+            "android": {
+              "foregroundImage": "./assets/icons/micro-sku-salmon.png",
+              "backgroundColor": "#2a0a0a"
+            }
+          },
+          "serious": {
+            "ios": "./assets/icons/micro-sku-serious.png",
+            "android": {
+              "foregroundImage": "./assets/icons/micro-sku-serious.png",
+              "backgroundColor": "#0a0a1e"
+            }
+          },
+          "teal": {
+            "ios": "./assets/icons/micro-sku-teal.png",
+            "android": {
+              "foregroundImage": "./assets/icons/micro-sku-teal.png",
+              "backgroundColor": "#0a2020"
+            }
+          },
+          "white": {
+            "ios": "./assets/icons/micro-sku-white.png",
+            "android": {
+              "foregroundImage": "./assets/icons/micro-sku-white.png",
+              "backgroundColor": "#f0f0f0"
+            }
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -268,7 +268,7 @@ export default function ChallengeScreen() {
               }
             }
           } catch (err) {
-            console.log('[challenge] message parse error', err);
+            if (__DEV__) console.log('[challenge] message parse error', err);
           }
         }}
         onError={() => {
