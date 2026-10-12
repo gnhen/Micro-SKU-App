@@ -110,33 +110,43 @@ const cartItemMatchesProduct = (item, sku, productId) => {
   return false;
 };
 
-// Best-effort removal of the line item we added, so the trick leaves the cart as it found it.
-// The anti-forgery token and item identifiers are rendered into the cart HTML.
-// IMPORTANT: We must target the correct item — the cart may contain other entries.
-// We extract ItemId/CompositeKey from the cartItems JSON (which we parse earlier)
-// rather than blindly grabbing the first <form> on the page.
-const removeCartLineItem = async (cartHtml, itemId, compositeKey, onStatus) => {
+// Parse every /cart/cartremove form on the page and extract its identifiers + token.
+const parseCartRemoveForms = (cartHtml) => {
+  const forms = [];
+  const formRe = /<form[^>]*action="\/cart\/cartremove"[^>]*>([\s\S]*?)<\/form>/gi;
+  const pageToken = cartHtml.match(/__RequestVerificationToken[^>]*value="([^"]+)"/i)?.[1] || null;
+  let m;
+  while ((m = formRe.exec(cartHtml)) !== null) {
+    const block = m[1];
+    const itemId = block.match(/name="ItemId"[^>]*value="([^"]+)"/i)?.[1];
+    const compositeKey = block.match(/name="CompositeKey"[^>]*value="([^"]+)"/i)?.[1];
+    const token = block.match(/__RequestVerificationToken[^>]*value="([^"]+)"/i)?.[1] || pageToken;
+    if (itemId && compositeKey && token) forms.push({ itemId, compositeKey, token });
+  }
+  return forms;
+};
+
+// Check whether an item's values contain a given ID string (for form matching).
+const itemContainsId = (item, id) => {
+  if (!item || typeof item !== 'object') return false;
+  return Object.values(item).some((v) => String(v).replace(/^0+/, '') === String(id).replace(/^0+/, ''));
+};
+
+// Remove a specific cart line item using its HTML form.
+const removeCartLineItem = async (form, onStatus) => {
   try {
-    if (!itemId || !compositeKey) return;
-
-    // Extract the single-page anti-forgery token
-    const tokenMatch = cartHtml.match(/__RequestVerificationToken[^>]*value="([^"]+)"/i);
-    if (!tokenMatch) return;
-
     await waitForRateLimit(onStatus);
-    const body = new URLSearchParams({
-      __RequestVerificationToken: tokenMatch[1],
-      ItemId: String(itemId),
-      CompositeKey: String(compositeKey),
-    }).toString();
-
-    await fetch(`${CART_URL}/cart/cartremove`, {
+    const res = await fetch(`${CART_URL}/cart/cartremove`, {
       method: 'POST',
       headers: getCartFormHeaders(),
-      body,
+      body: new URLSearchParams({
+        __RequestVerificationToken: form.token,
+        ItemId: String(form.itemId),
+        CompositeKey: String(form.compositeKey),
+      }).toString(),
     });
+    if (!res.ok) console.log('[resolveExactStock] cartremove failed', res.status);
   } catch (error) {
-    // Non-fatal: a lingering cart item doesn't affect stock reads (we match by SKU).
     console.log('[resolveExactStock] Cart cleanup failed:', error?.message || error);
   }
 };
@@ -151,9 +161,6 @@ export const resolveExactStock = async ({ productId, sku, storeId, refererUrl, o
   if (!productId || !sku || !normalizedStoreId) return null;
 
   try {
-    // Item identifiers extracted from cart JSON to target the correct removal
-    let removeItemId = null;
-    let removeCompositeKey = null;
     // 1. Add one unit to the session cart.
     await waitForRateLimit(onStatus);
     if (onStatus) onStatus('Checking exact stock...');
@@ -190,20 +197,30 @@ export const resolveExactStock = async ({ productId, sku, storeId, refererUrl, o
     const cartResponse = await fetchWithRetry(CART_URL, getRequestHeaders(), 2, onStatus);
     let quantity = null;
     let cartHtml = '';
+    let removeForm = null;
 
     if (cartResponse.ok) {
       cartHtml = await cartResponse.text();
+      const forms = parseCartRemoveForms(cartHtml);
       const cartItemsMatch = cartHtml.match(/var\s+cartItems\s*=\s*(\[[\s\S]*?\]);/);
       if (cartItemsMatch && cartItemsMatch[1]) {
         try {
           const items = JSON.parse(cartItemsMatch[1]);
           if (Array.isArray(items) && items.length > 0) {
-            const target = items.find((it) => cartItemMatchesProduct(it, sku, productId)) || items[0];
-            const qoh = Number(target && target.QuantityInStock);
-            if (Number.isFinite(qoh)) quantity = Math.max(0, qoh);
-            // Capture identifiers needed to remove this exact item later
-            if (target?.ItemId) removeItemId = target.ItemId;
-            if (target?.CompositeKey) removeCompositeKey = target.CompositeKey;
+            const target = items.find((it) => cartItemMatchesProduct(it, sku, productId));
+            if (target) {
+              const qoh = Number(target.QuantityInStock);
+              if (Number.isFinite(qoh)) quantity = Math.max(0, qoh);
+
+              // Pick the remove form that belongs to this item
+              removeForm =
+                forms.find((f) => itemContainsId(target, f.itemId)) ||
+                (forms.length === 1 ? forms[0] : null) ||
+                (forms.length === items.length ? forms[items.indexOf(target)] : null);
+            } else {
+              console.log('[resolveExactStock] No cart match. wanted:', sku, productId,
+                'first item:', JSON.stringify(items[0]).slice(0, 600));
+            }
           }
         } catch (error) {
           console.log('[resolveExactStock] Could not parse cartItems:', error?.message || error);
@@ -212,7 +229,8 @@ export const resolveExactStock = async ({ productId, sku, storeId, refererUrl, o
     }
 
     // 3. Clean up the temporary line item (targeted to the exact item we added).
-    if (cartHtml && removeItemId && removeCompositeKey) await removeCartLineItem(cartHtml, removeItemId, removeCompositeKey, onStatus);
+    if (removeForm) await removeCartLineItem(removeForm, onStatus);
+    else if (cartHtml) console.log('[resolveExactStock] No remove form matched, item left in cart');
     if (onStatus) onStatus('');
 
     return quantity;

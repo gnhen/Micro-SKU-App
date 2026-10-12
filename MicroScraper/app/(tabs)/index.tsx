@@ -606,6 +606,7 @@ export default function ScanScreen() {
     if (!backgroundAttempted && !challengeAttempted) {
       setTextResults([]);
       setData(null);
+      setValidImageUrls([]);
       setError(null);
     }
     try {
@@ -766,6 +767,7 @@ export default function ScanScreen() {
     setTextSearchMode(false);
     setTextResults([]);
     setZoomImageUrls([]);
+    setValidImageUrls([]);
     setCompingFallbackTried(false);
     setSingleImageFallbackTried(false);
 
@@ -901,6 +903,7 @@ export default function ScanScreen() {
       // SKU mismatch - Micro Center redirected to a different product
       setError(`Incorrect SKU Entry\n\nYou searched for: ${canonicalSku}\n\nPlease verify the SKU and try again.`);
       setData(null);
+      setValidImageUrls([]);
     } else if (result.sku && result.sku !== canonicalSku && (isUPC || isURL)) {
        // It was a UPC or URL search that resolved to a valid SKU - Accept it
        const finalData = { ...result, sku: result.sku }; // Use the found SKU
@@ -1192,14 +1195,8 @@ export default function ScanScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.imageGallery}>
               {validImageUrls.map((imgUrl, idx) => (
                 <TouchableOpacity
-                  key={idx}
-                  onPress={() => {
-                    setMapOverlayNotice(null);
-                    setMapMatches([]);
-                    setMapMatchIndex(0);
-                    setMapSearchCode(null);
-                    setFullScreenImage(imgUrl);
-                  }}
+                  key={imgUrl}
+                  onPress={() => setFullScreenImage(imgUrl)}
                 >
                   <Image 
                     source={{ uri: imgUrl }} 
@@ -1551,14 +1548,22 @@ export default function ScanScreen() {
       >
         <GestureHandlerRootView style={styles.fullScreenContainer}>
           <PanGestureHandler 
+            id="pan"
             onGestureEvent={onPanGesture}
-            onEnded={onPanEnd}
+            onHandlerStateChange={(event) => {
+              onPanGesture(event);
+              if (event.nativeEvent.state === State.END) onPanEnd();
+            }}
             simultaneousHandlers={['pinch']}
           >
             <Animated.View style={styles.fullScreenGestureSurface}>
               <PinchGestureHandler 
+                id="pinch"
                 onGestureEvent={onPinchGesture}
-                onEnded={onPinchEnd}
+                onHandlerStateChange={(event) => {
+                  onPinchGesture(event);
+                  if (event.nativeEvent.state === State.END) onPinchEnd(event);
+                }}
                 simultaneousHandlers={['pan']}
               >
                         <Animated.View
