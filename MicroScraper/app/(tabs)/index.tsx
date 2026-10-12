@@ -298,6 +298,18 @@ export default function ScanScreen() {
     if (!data) return;
     if (validImageUrls.length > 0) return;
     if (zoomImageUrls.length === 0) return;
+
+    // Guard: verify zoomImageUrls belong to the current product before using them.
+    // The seed URL in zoomImageUrls contains the productId — check it matches data.productId.
+    // This prevents stale zoomImageUrls from a previous product from repopulating validImageUrls.
+    const seedUrl = String(zoomImageUrls[0] || '');
+    const idSkuMatch = seedUrl.match(/\/(\d+)_(\d+)_/);
+    if (idSkuMatch && data.productId && String(data.productId) !== idSkuMatch[1]) {
+      // zoomImageUrls belong to a different product — don't use them
+      console.log('[fallback effect] Ignoring stale zoomImageUrls for product', idSkuMatch[1], 'current product is', data.productId);
+      return;
+    }
+
     if (!compingFallbackTried) {
       const compingUrls = zoomImageUrls.map((url) =>
         String(url).replace(/_zoom\.jpg(\?.*)?$/i, '_comping.jpg$1')
@@ -315,8 +327,7 @@ export default function ScanScreen() {
 
     if (singleImageFallbackTried) return;
 
-    const seedUrl = String(zoomImageUrls[0] || '');
-    const idSkuMatch = seedUrl.match(/\/(\d+)_(\d+)_/);
+    // idSkuMatch was already extracted above in the guard check
     if (!idSkuMatch) {
       setSingleImageFallbackTried(true);
       return;
