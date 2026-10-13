@@ -638,7 +638,13 @@ export default function ScanScreen() {
 
         if (!backgroundAttempted) {
           setError('Micro Center requested verification. Attempting automatic solver...');
-          const backgroundOutcome: any = await solveBackgroundChallenge((result as any).challenge, textQuery.trim());
+          let backgroundOutcome: any;
+          try {
+            backgroundOutcome = await solveBackgroundChallenge((result as any).challenge, textQuery.trim());
+          } catch (bgErr: any) {
+            console.log('[handleTextSearch] Background solver failed, falling back to visible challenge:', bgErr?.message || bgErr);
+            backgroundOutcome = null;
+          }
           if (backgroundOutcome?.status === 'solved') {
             if (backgroundOutcome?.userAgent) {
               setScraperUserAgent(backgroundOutcome.userAgent);
@@ -809,7 +815,13 @@ export default function ScanScreen() {
 
         if (!backgroundAttempted) {
           setError('Micro Center requested verification. Attempting automatic solver...');
-          const backgroundOutcome: any = await solveBackgroundChallenge((result as any).challenge, canonicalSku);
+          let backgroundOutcome: any;
+          try {
+            backgroundOutcome = await solveBackgroundChallenge((result as any).challenge, canonicalSku);
+          } catch (bgErr: any) {
+            console.log('[handleSearch] Background solver failed, falling back to visible challenge:', bgErr?.message || bgErr);
+            backgroundOutcome = null;
+          }
           if (backgroundOutcome?.status === 'solved') {
             if (backgroundOutcome?.userAgent) {
               setScraperUserAgent(backgroundOutcome.userAgent);

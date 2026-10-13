@@ -377,7 +377,13 @@ export default function ListScreen() {
       return firstResult;
     }
 
-    const backgroundOutcome: any = await solveBackgroundChallenge((firstResult as any).challenge, searchSku);
+    let backgroundOutcome: any;
+    try {
+      backgroundOutcome = await solveBackgroundChallenge((firstResult as any).challenge, searchSku);
+    } catch (bgErr: any) {
+      console.log('[fetchProductWithChallengePassthrough] Background solver failed, falling back to visible challenge:', bgErr?.message || bgErr);
+      backgroundOutcome = null;
+    }
     if (backgroundOutcome?.status === 'solved') {
       if (backgroundOutcome?.userAgent) {
         setScraperUserAgent(backgroundOutcome.userAgent);
