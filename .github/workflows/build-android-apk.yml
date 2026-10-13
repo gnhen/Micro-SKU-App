@@ -1,0 +1,42 @@
+name: Build Android APK (Gradle)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: MicroScraper/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17' # Expo and modern React Native require Java 17
+
+      - name: Install Dependencies
+        working-directory: ./MicroScraper
+        run: npm ci
+
+      - name: Generate Native Android Project
+        working-directory: ./MicroScraper
+        run: npx expo prebuild --platform android
+
+      - name: Build APK
+        working-directory: ./MicroScraper/android
+        run: ./gradlew assembleRelease
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MicroScraper-APK
+          path: MicroScraper/android/app/build/outputs/apk/release/app-release.apk
