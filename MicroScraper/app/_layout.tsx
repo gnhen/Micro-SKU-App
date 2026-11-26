@@ -3,7 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { useEffect, useState } from 'react';
-import { View, Text } from 'react-native';
+import { Linking, Pressable, Text, View } from 'react-native';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
@@ -30,6 +30,7 @@ export const unstable_settings = {
 function RootLayoutContent() {
   const colorScheme = useColorScheme();
   const [serviceReady, setServiceReady] = useState(true);
+  const [availabilityMessage, setAvailabilityMessage] = useState('');
 
   useEffect(() => {
     // Check for updates silently on app start
@@ -46,8 +47,8 @@ function RootLayoutContent() {
         if (!disposed && state === 'gone') {
           setServiceReady(false);
         }
-      } catch (_availabilityError) {
-        // Transport failures are treated as "offline" and leave readiness unchanged.
+      } catch (availabilityError) {
+        console.warn('[availability] Initial check failed:', availabilityError);
       }
     };
 
@@ -59,10 +60,41 @@ function RootLayoutContent() {
     };
   }, []);
 
+  const retryAvailability = async () => {
+    setAvailabilityMessage('Checking availability...');
+    try {
+      const { state } = await getRemoteState({ force: true });
+      if (state !== 'gone') {
+        setServiceReady(true);
+      } else {
+        setAvailabilityMessage('The releases page is still unavailable. Please try again later.');
+      }
+    } catch (error) {
+      console.warn('[availability] Retry failed:', error);
+      setAvailabilityMessage('Could not check availability. Please try again.');
+    }
+  };
+
   if (!serviceReady) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 16 }}>
         <Text style={{ color: '#fff', fontSize: 20 }}>Service Unavailable</Text>
+        <Text style={{ color: '#aaa', fontSize: 14, textAlign: 'center' }}>
+          The app could not confirm its release page is available. If this keeps happening, check for a newer version.
+        </Text>
+        {availabilityMessage ? (
+          <Text style={{ color: '#aaa', fontSize: 13, textAlign: 'center' }}>{availabilityMessage}</Text>
+        ) : null}
+        <Pressable onPress={retryAvailability} style={{ backgroundColor: '#fff', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 }}>
+          <Text style={{ color: '#000', fontWeight: '700' }}>Retry</Text>
+        </Pressable>
+        <Pressable onPress={() => {
+          Linking.openURL('https://github.com/gnhen/Micro-SKU-App/releases').catch(() => {
+            setAvailabilityMessage('Could not open the releases page on this device.');
+          });
+        }}>
+          <Text style={{ color: '#6cf', fontSize: 14 }}>Open releases page</Text>
+        </Pressable>
       </View>
     );
   }

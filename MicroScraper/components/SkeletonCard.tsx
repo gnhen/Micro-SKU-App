@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors, XP_WINDOW } from '@/constants/theme';
@@ -73,7 +73,7 @@ export default function SkeletonCard({ loadingStatus }: { loadingStatus?: string
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
-  const shimmer = useRef(new Animated.Value(0)).current;
+  const [shimmer] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     const loop = Animated.loop(

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Text,
   View,
@@ -21,13 +21,13 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
-import { WebView } from 'react-native-webview';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors, TAB_BAR_CLEARANCE, XP_CHROME, XP_FONT, XP_WINDOW, xpDialogTitle } from '@/constants/theme';
 import { GlassButton } from '@/components/ui/glass-button';
 import { fetchProductBySku, setScraperUserAgent } from '../../services/scraper';
 import { useChallengeSolver } from '@/hooks/useChallengeSolver';
+import { createChallengeRequest } from '@/services/challengeSession';
 import { safeParse } from '@/utils/safeParse';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -147,30 +147,7 @@ export default function ListScreen() {
     return () => clearTimeout(t);
   }, [toastMsg]);
 
-  // ── Load data on focus ──────────────────────────────────────────────────────
-  useFocusEffect(
-    React.useCallback(() => {
-      loadData();
-    }, [])
-  );
-
-  // ── Android hardware back button: close open modals before navigating ───────
-  useFocusEffect(
-    React.useCallback(() => {
-      if (Platform.OS !== 'android') return;
-      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-        if (showSortModal) { setShowSortModal(false); return true; }
-        if (showRenameModal) { setShowRenameModal(false); return true; }
-        if (showQtyModal) { setShowQtyModal(false); return true; }
-        if (showListPicker) { setShowListPicker(false); return true; }
-        if (showAddItemModal) { setShowAddItemModal(false); return true; }
-        return false;
-      });
-      return () => sub.remove();
-    }, [showSortModal, showRenameModal, showListPicker, showAddItemModal])
-  );
-
-  const loadData = async () => {
+  const loadData = React.useCallback(async () => {
     const [sid, raw] = await Promise.all([
       AsyncStorage.getItem('storeId'),
       AsyncStorage.getItem(STORAGE_KEY),
@@ -187,7 +164,30 @@ export default function ListScreen() {
     } else {
       setCurrentListId(null);
     }
-  };
+  }, []);
+
+  // ── Load data on focus ──────────────────────────────────────────────────────
+  useFocusEffect(
+    React.useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
+
+  // ── Android hardware back button: close open modals before navigating ───────
+  useFocusEffect(
+    React.useCallback(() => {
+      if (Platform.OS !== 'android') return;
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (showSortModal) { setShowSortModal(false); return true; }
+        if (showRenameModal) { setShowRenameModal(false); return true; }
+        if (showQtyModal) { setShowQtyModal(false); return true; }
+        if (showListPicker) { setShowListPicker(false); return true; }
+        if (showAddItemModal) { setShowAddItemModal(false); return true; }
+        return false;
+      });
+      return () => sub.remove();
+    }, [showSortModal, showRenameModal, showQtyModal, showListPicker, showAddItemModal])
+  );
 
   const saveLists = async (updated: ItemList[], animate = false) => {
     if (animate) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -372,7 +372,7 @@ export default function ListScreen() {
   };
 
   const fetchProductWithChallengePassthrough = async (searchSku: string, sid: string) => {
-    const firstResult = await fetchProductBySku(searchSku, sid);
+    const firstResult = await fetchProductBySku(searchSku, sid, () => {});
     if ((firstResult as any).error !== 'challengeRequired') {
       return firstResult;
     }
@@ -381,7 +381,7 @@ export default function ListScreen() {
     try {
       backgroundOutcome = await solveBackgroundChallenge((firstResult as any).challenge, searchSku);
     } catch (bgErr: any) {
-      console.log('[fetchProductWithChallengePassthrough] Background solver failed, falling back to visible challenge:', bgErr?.message || bgErr);
+      console.warn('[fetchProductWithChallengePassthrough] Background solver failed, falling back to visible challenge:', bgErr?.message || bgErr);
       backgroundOutcome = null;
     }
     if (backgroundOutcome?.status === 'solved') {
@@ -393,7 +393,7 @@ export default function ListScreen() {
         ? backgroundOutcome.finalUrl
         : searchSku;
 
-      const backgroundRetryResult = await fetchProductBySku(backgroundRetryTarget, sid);
+      const backgroundRetryResult = await fetchProductBySku(backgroundRetryTarget, sid, () => {});
       if ((backgroundRetryResult as any).error !== 'challengeRequired') {
         return backgroundRetryResult;
       }
@@ -425,7 +425,7 @@ export default function ListScreen() {
       ? challengeOutcome.finalUrl
       : searchSku;
 
-    const retryResult = await fetchProductBySku(retryTarget, sid);
+    const retryResult = await fetchProductBySku(retryTarget, sid, () => {});
     if ((retryResult as any).error === 'challengeRequired') {
       return { error: 'challengeStillBlocked', searchedSku: searchSku };
     }
@@ -807,7 +807,7 @@ export default function ListScreen() {
             ? <Text style={{ fontSize: 54 }}>🛒</Text>
             : <Ionicons name="cart-outline" size={60} color="#aaa" />}
           <Text style={[styles.emptyText, { color: theme.text }, isXP && { fontFamily: XP_FONT }]}>List is empty</Text>
-          <Text style={{ color: '#aaa', marginTop: 6 }}>Tap "Add Item" to add a product by SKU</Text>
+          <Text style={{ color: '#aaa', marginTop: 6 }}>Tap &quot;Add Item&quot; to add a product by SKU</Text>
         </View>
       ) : filteredAndSortedItems.length === 0 ? (
         <View style={styles.emptyState}>

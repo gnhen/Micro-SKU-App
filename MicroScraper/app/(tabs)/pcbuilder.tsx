@@ -35,8 +35,103 @@ import {
 } from '@/services/pcBuilderWebViewScraper';
 import { initDatabase, getComponentsByCategory } from '@/services/database';
 
+type ComponentPrice = number | string | null;
+
+interface PCBuilderComponent {
+  sku?: string;
+  name?: string;
+  price?: ComponentPrice;
+  sale_price?: number | null;
+  image?: string | null;
+  image_url?: string | null;
+  url?: string | null;
+  brand?: string | null;
+  category?: string;
+  category_name?: string;
+  category_display?: string;
+  bundleId?: string | number;
+  bundlePrice?: number;
+  originalPrice?: number;
+  isLoading?: boolean;
+  scanned?: boolean;
+}
+
+interface PCBuilderCategory {
+  id: string;
+  name: string;
+  display_name: string;
+  icon: string;
+  allowMultiple: boolean;
+  required?: number;
+}
+
+interface PCBuilderSection {
+  section: string;
+  categories: PCBuilderCategory[];
+}
+
+interface AppliedBundle {
+  name: string;
+  savings?: number;
+}
+
+interface PCBuild {
+  id: number;
+  name: string;
+  components: PCBuilderComponent[];
+  created_at: string;
+  appliedBundle?: AppliedBundle;
+}
+
+interface LoadedPCBuild extends PCBuild {
+  total_price: number;
+  original_total_price: number | null;
+}
+
+interface ScrapingSku {
+  sku: string;
+  category: PCBuilderCategory;
+}
+
+interface ScannedDatabaseComponent {
+  sku: string;
+  name: string;
+  sale_price: number | null;
+  price: number | null;
+  image_url: string | null;
+  url: string | null;
+  brand: string | null;
+}
+
+interface ChallengeResult {
+  status?: 'solved' | 'cancelled' | 'error';
+  userAgent?: string;
+}
+
+interface ChallengeMessage {
+  isChallenge: true;
+  url: string;
+}
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+const isChallengeResult = (value: unknown): value is ChallengeResult =>
+  typeof value === 'object' && value !== null &&
+  (!('status' in value) ||
+    value.status === 'solved' ||
+    value.status === 'cancelled' ||
+    value.status === 'error') &&
+  (!('userAgent' in value) || typeof value.userAgent === 'string') &&
+  ('status' in value || 'userAgent' in value);
+
+const isChallengeMessage = (value: unknown): value is ChallengeMessage =>
+  typeof value === 'object' && value !== null &&
+  'isChallenge' in value && value.isChallenge === true &&
+  'url' in value && typeof value.url === 'string';
+
 // Maps pcBuilder category ids to the category names used by the scanned-components database
-const SCANNED_CATEGORY_MAP = {
+const SCANNED_CATEGORY_MAP: Record<string, string> = {
   cpu: 'cpu',
   gpu: 'gpu',
   motherboard: 'motherboard',
@@ -49,14 +144,14 @@ const SCANNED_CATEGORY_MAP = {
   os: 'os',
 };
 
-const getScannedComponents = async (categoryId: string) => {
+const getScannedComponents = async (categoryId: string): Promise<PCBuilderComponent[]> => {
   const dbCategory = SCANNED_CATEGORY_MAP[categoryId];
   if (!dbCategory) return [];
 
   try {
     await initDatabase();
-    const rows = await getComponentsByCategory(dbCategory);
-    return rows.map((row: any) => ({
+    const rows = await getComponentsByCategory(dbCategory) as ScannedDatabaseComponent[];
+    return rows.map(row => ({
       sku: row.sku,
       name: row.name,
       price: row.sale_price ?? row.price ?? null,
@@ -72,7 +167,10 @@ const getScannedComponents = async (categoryId: string) => {
 };
 
 // Merge freshly scraped components with locally scanned ones, preferring the scraped copy on SKU collision
-const mergeScannedComponents = (primary = [], scanned = []) => {
+const mergeScannedComponents = (
+  primary: PCBuilderComponent[] = [],
+  scanned: PCBuilderComponent[] = [],
+): PCBuilderComponent[] => {
   const seenSkus = new Set(primary.filter(c => c.sku).map(c => c.sku));
   const extras = scanned.filter(c => c.sku && !seenSkus.has(c.sku));
   return [...primary, ...extras];
@@ -82,33 +180,34 @@ export default function PCBuilderScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
-  const [builds, setBuilds] = useState([]);
-  const [currentBuildId, setCurrentBuildId] = useState(null);
-  const [currentBuild, setCurrentBuild] = useState(null);
-  const [categories, setCategories] = useState([]);
+  const [builds, setBuilds] = useState<PCBuild[]>([]);
+  const [currentBuildId, setCurrentBuildId] = useState<number | null>(null);
+  const [currentBuild, setCurrentBuild] = useState<LoadedPCBuild | null>(null);
+  const [categories, setCategories] = useState<PCBuilderSection[]>([]);
   const [showNewBuildModal, setShowNewBuildModal] = useState(false);
   const [showComponentModal, setShowComponentModal] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState(null);
-  const [availableComponents, setAvailableComponents] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState<PCBuilderCategory | null>(null);
+  const [availableComponents, setAvailableComponents] = useState<PCBuilderComponent[]>([]);
   const [newBuildName, setNewBuildName] = useState('');
   const [loading, setLoading] = useState(true);
   const [storeId, setStoreId] = useState('071');
   const [loadingComponents, setLoadingComponents] = useState(false);
-  const [scrapingCategory, setScrapingCategory] = useState(null);
-  const [expandedSections, setExpandedSections] = useState({});
+  const [scrapingCategory, setScrapingCategory] = useState<string | null>(null);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [showSkuModal, setShowSkuModal] = useState(false);
   const [manualSku, setManualSku] = useState('');
-  const [scrapingSku, setScrapingSku] = useState(null);
+  const [scrapingSku, setScrapingSku] = useState<ScrapingSku | null>(null);
   const [webViewUserAgent, setWebViewUserAgent] = useState<string | undefined>(undefined);
-  const webViewRef = useRef(null);
-  const skuWebViewRef = useRef(null);
+  const webViewRef = useRef<WebView | null>(null);
+  const skuWebViewRef = useRef<WebView | null>(null);
   const isChallengeActiveRef = useRef(false);
-  const scannedComponentsRef = useRef([]);
+  const scannedComponentsRef = useRef<PCBuilderComponent[]>([]);
   const router = useRouter();
   const pathname = usePathname();
   const cameFromMore = pathname === '/tab-proxy';
+  const initializedRef = useRef(false);
 
-  const runChallengeFlow = async (url: string, sku: string = '') => {
+  const runChallengeFlow = async (url: string, sku: string = ''): Promise<unknown> => {
     const payload = {
       searchedSku: sku,
       challenge: { url },
@@ -118,24 +217,19 @@ export default function PCBuilderScreen() {
     return promise;
   };
 
-  useEffect(() => {
-    initializeData();
-  }, []);
-
-  useEffect(() => {
-    if (currentBuildId) {
-      loadCurrentBuild();
-    }
-  }, [currentBuildId]);
-
-  const initializeData = async () => {
+  const initializeData = React.useCallback(async () => {
     try {
+      const [savedStoreId, savedBuilds] = await Promise.all([
+        AsyncStorage.getItem('storeId'),
+        AsyncStorage.getItem('pcBuilds'),
+      ]);
+
       // Get categories from scraper
       const cats = getCategories();
       setCategories(cats);
       
       // Initialize all sections as expanded
-      const initialExpanded = {};
+      const initialExpanded: Record<string, boolean> = {};
       cats.forEach(section => {
         initialExpanded[section.section] = true;
       });
@@ -145,12 +239,10 @@ export default function PCBuilderScreen() {
       clearCache();
       
       // Load store ID from settings
-      const savedStoreId = await AsyncStorage.getItem('storeId');
       if (savedStoreId) setStoreId(savedStoreId);
       
       // Load builds from AsyncStorage
-      const savedBuilds = await AsyncStorage.getItem('pcBuilds');
-      const allBuilds = savedBuilds ? JSON.parse(savedBuilds) : [];
+      const allBuilds: PCBuild[] = savedBuilds ? JSON.parse(savedBuilds) as PCBuild[] : [];
       setBuilds(allBuilds);
       
       // Don't auto-load bundles, wait for user to select AMD or Intel
@@ -166,12 +258,12 @@ export default function PCBuilderScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentBuildId]);
 
-  const loadCurrentBuild = async () => {
+  const loadCurrentBuild = React.useCallback(async () => {
     try {
       const savedBuilds = await AsyncStorage.getItem('pcBuilds');
-      const allBuilds = savedBuilds ? JSON.parse(savedBuilds) : [];
+      const allBuilds: PCBuild[] = savedBuilds ? JSON.parse(savedBuilds) as PCBuild[] : [];
       const build = allBuilds.find(b => b.id === currentBuildId);
       
       if (build) {
@@ -179,7 +271,7 @@ export default function PCBuilderScreen() {
         const totalPrice = build.components?.reduce((sum, c) => {
           const price = c.bundlePrice || c.sale_price || c.price || 0;
           // Handle both numeric and string prices (like 'N/A'), and guard against NaN
-          const numericPrice = Number.isFinite(price) ? price : 0;
+          const numericPrice = typeof price === 'number' && Number.isFinite(price) ? price : 0;
           return sum + numericPrice;
         }, 0) || 0;
 
@@ -187,7 +279,7 @@ export default function PCBuilderScreen() {
         const originalTotalPrice = build.components?.reduce((sum, c) => {
           const price = c.originalPrice || c.sale_price || c.price || 0;
           // Handle both numeric and string prices (like 'N/A'), and guard against NaN
-          const numericPrice = Number.isFinite(price) ? price : 0;
+          const numericPrice = typeof price === 'number' && Number.isFinite(price) ? price : 0;
           return sum + numericPrice;
         }, 0) || 0;
         
@@ -201,7 +293,21 @@ export default function PCBuilderScreen() {
     } catch (error) {
       console.error('Error loading build:', error);
     }
-  };
+  }, [currentBuildId]);
+
+  useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+    initializeData();
+  }, [initializeData]);
+
+  useEffect(() => {
+    if (currentBuildId) {
+      // Fetch the persisted build and synchronize it with the selected build id.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadCurrentBuild();
+    }
+  }, [currentBuildId, loadCurrentBuild]);
 
   const handleCreateBuild = async () => {
     if (!newBuildName.trim()) {
@@ -218,7 +324,7 @@ export default function PCBuilderScreen() {
       };
       
       const savedBuilds = await AsyncStorage.getItem('pcBuilds');
-      const allBuilds = savedBuilds ? JSON.parse(savedBuilds) : [];
+      const allBuilds: PCBuild[] = savedBuilds ? JSON.parse(savedBuilds) as PCBuild[] : [];
       allBuilds.push(newBuild);
       
       await AsyncStorage.setItem('pcBuilds', JSON.stringify(allBuilds));
@@ -233,7 +339,7 @@ export default function PCBuilderScreen() {
     }
   };
 
-  const handleDeleteBuild = async (buildId) => {
+  const handleDeleteBuild = async (buildId: number) => {
     Alert.alert(
       'Delete Build',
       'Are you sure you want to delete this build?',
@@ -245,7 +351,7 @@ export default function PCBuilderScreen() {
           onPress: async () => {
             try {
               const savedBuilds = await AsyncStorage.getItem('pcBuilds');
-              const allBuilds = savedBuilds ? JSON.parse(savedBuilds) : [];
+              const allBuilds: PCBuild[] = savedBuilds ? JSON.parse(savedBuilds) as PCBuild[] : [];
               const updatedBuilds = allBuilds.filter(b => b.id !== buildId);
               
               await AsyncStorage.setItem('pcBuilds', JSON.stringify(updatedBuilds));
@@ -265,7 +371,7 @@ export default function PCBuilderScreen() {
     );
   };
 
-  const handleSelectComponent = async (category) => {
+  const handleSelectComponent = async (category: PCBuilderCategory) => {
     setSelectedCategory(category);
 
     const scanned = await getScannedComponents(category.id);
@@ -313,10 +419,13 @@ export default function PCBuilderScreen() {
     });
   };
 
-  const handleAddComponent = async (component) => {
+  const handleAddComponent = async (component: PCBuilderComponent) => {
     try {
+      if (!selectedCategory) {
+        throw new Error('No component category selected');
+      }
       const savedBuilds = await AsyncStorage.getItem('pcBuilds');
-      const allBuilds = savedBuilds ? JSON.parse(savedBuilds) : [];
+      const allBuilds: PCBuild[] = savedBuilds ? JSON.parse(savedBuilds) as PCBuild[] : [];
       const buildIndex = allBuilds.findIndex(b => b.id === currentBuildId);
       
       if (buildIndex === -1) {
@@ -348,7 +457,7 @@ export default function PCBuilderScreen() {
     }
   };
 
-  const handleRemoveComponent = async (categoryName, sku = null) => {
+  const handleRemoveComponent = async (categoryName: string, sku: string | null = null) => {
     Alert.alert(
       'Remove Component',
       'Remove this component from your build?',
@@ -365,10 +474,10 @@ export default function PCBuilderScreen() {
     );
   };
 
-  const removeComponent = async (categoryName, sku = null) => {
+  const removeComponent = async (categoryName: string, sku: string | null = null) => {
     try {
       const savedBuilds = await AsyncStorage.getItem('pcBuilds');
-      const allBuilds = savedBuilds ? JSON.parse(savedBuilds) : [];
+      const allBuilds: PCBuild[] = savedBuilds ? JSON.parse(savedBuilds) as PCBuild[] : [];
       const buildIndex = allBuilds.findIndex(b => b.id === currentBuildId);
       
       if (buildIndex !== -1) {
@@ -377,7 +486,7 @@ export default function PCBuilderScreen() {
           const componentIndex = allBuilds[buildIndex].components?.findIndex(
             c => c.category_name === categoryName && c.sku === sku
           );
-          if (componentIndex !== -1) {
+          if (componentIndex !== undefined && componentIndex !== -1) {
             allBuilds[buildIndex].components.splice(componentIndex, 1);
           }
         } else {
@@ -396,15 +505,15 @@ export default function PCBuilderScreen() {
     }
   };
 
-  const getBuildComponentForCategory = (categoryName) => {
+  const getBuildComponentForCategory = (categoryName: string): PCBuilderComponent | undefined => {
     return currentBuild?.components?.find(c => c.category_name === categoryName);
   };
 
-  const getBuildComponentsForCategory = (categoryName) => {
+  const getBuildComponentsForCategory = (categoryName: string): PCBuilderComponent[] => {
     return currentBuild?.components?.filter(c => c.category_name === categoryName) || [];
   };
 
-  const toggleSection = (sectionName) => {
+  const toggleSection = (sectionName: string) => {
     setExpandedSections(prev => ({
       ...prev,
       [sectionName]: !prev[sectionName]
@@ -412,7 +521,7 @@ export default function PCBuilderScreen() {
   };
 
   // Fetch component details from Microcenter product page
-  const fetchComponentDetails = async (sku) => {
+  const fetchComponentDetails = async (sku: string): Promise<Pick<PCBuilderComponent, 'name' | 'image'>> => {
     return new Promise((resolve) => {
       // Create a temporary WebView to scrape product details
       const productUrl = `https://www.microcenter.com/product/${sku}`;
@@ -438,7 +547,7 @@ export default function PCBuilderScreen() {
 
     try {
       // Store information mapping
-      const storeInfo = {
+      const storeInfo: Record<string, { name: string; taxRate: number }> = {
         '025': { name: 'Microcenter - Westmont, IL', taxRate: 0.0925 },
         '041': { name: 'Microcenter - Marietta, GA', taxRate: 0.07 },
         '045': { name: 'Microcenter - St. Louis Park, MN', taxRate: 0.07875 },
@@ -471,7 +580,10 @@ export default function PCBuilderScreen() {
         '205': { name: 'Microcenter - Phoenix, AZ', taxRate: 0.083 },
       };
 
-      const currentStore = storeInfo[storeId] || { name: `Store ${storeId}`, taxRate: 0.07 };
+      const currentStore = storeInfo[storeId] || {
+        name: `Store ${storeId}`,
+        taxRate: 0.07,
+      };
 
       // Calculate total price
       const totalPrice = currentBuild.components.reduce((sum, component) => {
@@ -825,12 +937,12 @@ export default function PCBuilderScreen() {
                                 ${component.originalPrice.toFixed(2)}
                               </Text>
                               <ThemedText style={styles.componentBundlePrice}>
-                                ${component.bundlePrice?.toFixed(2) || component.price?.toFixed(2)}
+                                ${component.bundlePrice?.toFixed(2) || (isFiniteNumber(component.price) ? component.price.toFixed(2) : component.price || 'N/A')}
                               </ThemedText>
                             </View>
                           ) : (
                             <ThemedText style={styles.componentPrice}>
-                              {Number.isFinite(component.price) ? `$${component.price.toFixed(2)}` : (component.price || 'N/A')}
+                              {isFiniteNumber(component.price) ? `$${component.price.toFixed(2)}` : (component.price || 'N/A')}
                             </ThemedText>
                           )}
                         </View>
@@ -978,7 +1090,7 @@ export default function PCBuilderScreen() {
                   )}
                 </View>
                 <View style={styles.componentPriceContainer}>
-                  {Number.isFinite(item.price) ? (
+                  {isFiniteNumber(item.price) ? (
                     <ThemedText style={styles.componentItemPrice}>
                       ${item.price.toFixed(2)}
                     </ThemedText>
@@ -1054,28 +1166,27 @@ export default function PCBuilderScreen() {
             ref={webViewRef}
             userAgent={webViewUserAgent}
             sharedCookiesEnabled={true}
-            source={{ uri: getCategoryURL(scrapingCategory, storeId) }}
+            source={{ uri: getCategoryURL(scrapingCategory, storeId) ?? 'about:blank' }}
             onLoadEnd={() => {
               console.log(`[PC Builder] WebView loaded for ${scrapingCategory}`);
               webViewRef.current?.injectJavaScript(getExtractionScript(scrapingCategory));
             }}
             onMessage={async (event) => {
               try {
-                const data = JSON.parse(event.nativeEvent.data);
-                if (data.isChallenge) {
+                const data: unknown = JSON.parse(event.nativeEvent.data);
+                if (isChallengeMessage(data)) {
                   if (isChallengeActiveRef.current) return;
                   isChallengeActiveRef.current = true;
                   
                   console.log('[PC Builder] Challenge detected! Starting flow...');
                   try {
-                    const result: any = await runChallengeFlow(data.url);
+                    const result: unknown = await runChallengeFlow(data.url);
                     
-                    if (result?.status === 'solved') {
+                    if (isChallengeResult(result) && result.status === 'solved') {
                       if (result.userAgent) {
                         setWebViewUserAgent(result.userAgent);
                       }
                       if (webViewRef.current) {
-                        // @ts-ignore
                         webViewRef.current.reload();
                       }
                     } else {
@@ -1089,7 +1200,7 @@ export default function PCBuilderScreen() {
                 }
               } catch (e) {}
 
-              handleWebViewMessage(event, scrapingCategory, (components) => {
+              handleWebViewMessage(event, scrapingCategory, (components: PCBuilderComponent[]) => {
                 setAvailableComponents(mergeScannedComponents(components, scannedComponentsRef.current));
                 setLoadingComponents(false);
                 setScrapingCategory(null);
@@ -1120,25 +1231,23 @@ export default function PCBuilderScreen() {
             onMessage={async (event) => {
               console.log(`[PC Builder SKU] Received message from WebView`);
               try {
-                const data = JSON.parse(event.nativeEvent.data);
-                if (data.isChallenge) {
+                const data: unknown = JSON.parse(event.nativeEvent.data);
+                if (isChallengeMessage(data)) {
                   if (isChallengeActiveRef.current) return;
                   isChallengeActiveRef.current = true;
                   
                   console.log('[PC Builder SKU] Challenge detected! Starting flow...');
                   try {
-                    const result: any = await runChallengeFlow(data.url, scrapingSku.sku);
+                    const result: unknown = await runChallengeFlow(data.url, scrapingSku.sku);
                     
-                    if (result?.status === 'solved') {
+                    if (isChallengeResult(result) && result.status === 'solved') {
                       if (result.userAgent) {
                         setWebViewUserAgent(result.userAgent);
                       }
                       if (skuWebViewRef.current) {
-                        // @ts-ignore
                         skuWebViewRef.current.reload();
                       }
                     } else {
-                      // @ts-ignore
                       await removeComponent(scrapingSku.category.name, scrapingSku.sku);
                       setScrapingSku(null);
                       setManualSku('');
@@ -1150,7 +1259,7 @@ export default function PCBuilderScreen() {
                 }
               } catch(e) {}
 
-              handleWebViewMessage(event, 'search', async (components) => {
+              handleWebViewMessage(event, 'search', async (components: PCBuilderComponent[]) => {
                 console.log(`[PC Builder SKU] Found ${components.length} results for SKU ${scrapingSku.sku}`);
                 
                 // Find the exact SKU match
@@ -1161,13 +1270,13 @@ export default function PCBuilderScreen() {
                   // Update the loading component with real data
                   try {
                     const savedBuilds = await AsyncStorage.getItem('pcBuilds');
-                    const allBuilds = savedBuilds ? JSON.parse(savedBuilds) : [];
+                    const allBuilds: PCBuild[] = savedBuilds ? JSON.parse(savedBuilds) as PCBuild[] : [];
                     const buildIndex = allBuilds.findIndex(b => b.id === currentBuildId);
                     
                     if (buildIndex !== -1) {
                       // Find and replace the loading component
-                      const componentIndex = allBuilds[buildIndex].components?.findIndex(
-                        c => c.sku === scrapingSku.sku && c.isLoading
+                      const componentIndex = allBuilds[buildIndex].components.findIndex(
+                        component => component.sku === scrapingSku.sku && component.isLoading
                       );
                       
                       if (componentIndex !== -1) {
@@ -1514,11 +1623,6 @@ const styles = StyleSheet.create({
   componentItemPrice: {
     fontSize: 16,
     fontWeight: '700',
-  },
-  componentOriginalPrice: {
-    fontSize: 12,
-    textDecorationLine: 'line-through',
-    marginTop: 2,
   },
   emptyList: {
     flex: 1,

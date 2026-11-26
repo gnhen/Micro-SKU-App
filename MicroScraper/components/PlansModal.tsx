@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, ScrollView,
   Image, StyleSheet, Dimensions, StatusBar,
@@ -28,6 +28,8 @@ export default function PlansModal({ visible, onClose, department }: Props) {
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [fullScreenImage, setFullScreenImage] = useState<number | null>(null);
+  const panRef = useRef(null);
+  const pinchRef = useRef(null);
 
   // Pinch / pan shared values for fullscreen zoom
   const scale = useSharedValue(1);
@@ -194,15 +196,17 @@ export default function PlansModal({ visible, onClose, department }: Props) {
       >
         <GestureHandlerRootView style={styles.fullScreenContainer}>
           <PanGestureHandler
+            ref={panRef}
             onGestureEvent={onPanGesture}
             onEnded={onPanEnd}
-            simultaneousHandlers={['pinch']}
+            simultaneousHandlers={pinchRef}
           >
             <Animated.View style={{ flex: 1, width: '100%' }}>
               <PinchGestureHandler
+                ref={pinchRef}
                 onGestureEvent={onPinchGesture}
                 onEnded={onPinchEnd}
-                simultaneousHandlers={['pan']}
+                simultaneousHandlers={panRef}
               >
                 <Animated.View style={[styles.fullScreenTouchable, animatedStyle]}>
                   {fullScreenImage !== null && (

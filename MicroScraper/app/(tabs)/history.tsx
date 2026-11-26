@@ -15,24 +15,12 @@ export default function HistoryScreen() {
   const colorScheme = useColorScheme();
   const router = useRouter();
   const colors = Colors[colorScheme ?? 'light'];
-  const theme = {
-    bg: colors.background,
-    text: colors.text,
-    border: colors.border,
-    cardBg: colors.card,
-  };
 
   const [history, setHistory] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      loadHistory();
-    }, [])
-  );
-
-  const loadHistory = async () => {
+  const loadHistory = React.useCallback(async () => {
     try {
       const savedHistory = await AsyncStorage.getItem('searchHistory');
       if (savedHistory) {
@@ -41,7 +29,13 @@ export default function HistoryScreen() {
     } catch (error) {
       console.error('Error loading history:', error);
     }
-  };
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadHistory();
+    }, [loadHistory])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);

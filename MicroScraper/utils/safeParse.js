@@ -4,6 +4,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
  * Shared safe JSON parsing utility.
  * Every AsyncStorage.getItem(...).then(JSON.parse) should use this
  * to avoid a blank screen when storage is corrupted.
+ * @template T
+ * @param {string | null} raw
+ * @param {T} [fallback=null]
+ * @returns {T}
  */
 export function safeParse(raw, fallback = null) {
   if (raw == null || typeof raw !== 'string' || raw.trim() === '') {

@@ -70,31 +70,17 @@ export default function ChallengeScreen() {
     }
   }, [requestId, router]);
 
-  useEffect(() => {
-    // Failsafe timer: if Cloudflare completely blocks injected scripts (like on iOS),
-    // we must guarantee we don't hang forever.
-    startVerificationTimeout();
-    
-    return () => {
-      if (verificationTimeoutRef.current) {
-        clearTimeout(verificationTimeoutRef.current);
-        verificationTimeoutRef.current = null;
-      }
-      if (!resolvedRef.current && requestId) {
-        resolveChallengeRequest(requestId, { status: 'cancelled', reason: 'dismissed' });
-      }
-    };
-    // EXPLICITLY removing dependencies so this only runs once on mount.
-    // If router or startVerificationTimeout changes, it was thrashing and resetting the timer.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const finishRef = useRef(finish);
+  const requestIdRef = useRef(requestId);
 
-  // Use refs for values needed in the timeout to avoid recreating the callback and retriggering useEffect
+  // Use refs for values needed in the timeout to avoid recreating the callback and retriggering useEffect.
   const currentUrlRef = useRef(initialUrl);
   const detectedUserAgentRef = useRef<string | undefined>(undefined);
-  const mountTimeRef = useRef(Date.now());
+  const mountTimeRef = useRef<number | null>(null);
 
   // Keep refs in sync with state
+  useEffect(() => { finishRef.current = finish; }, [finish]);
+  useEffect(() => { requestIdRef.current = requestId; }, [requestId]);
   useEffect(() => { currentUrlRef.current = currentUrl; }, [currentUrl]);
   useEffect(() => { detectedUserAgentRef.current = detectedUserAgent; }, [detectedUserAgent]);
 
@@ -108,14 +94,15 @@ export default function ChallengeScreen() {
     setDebugLog(prev => prev + ` | timeout_start`);
 
     verificationTimeoutRef.current = setTimeout(() => {
+      verificationTimeoutRef.current = null;
       setDebugLog(prev => prev + ` | timeout_fired`);
-      finish('error', {
+      finishRef.current('error', {
         reason: 'verificationTimeout',
         finalUrl: currentUrlRef.current,
         userAgent: detectedUserAgentRef.current,
       });
     }, 30000); // 30 seconds to allow for Cloudflare puzzle
-  }, [finish]);
+  }, []);
 
   const stopVerificationTimeout = useCallback(() => {
     if (verificationTimeoutRef.current) {
@@ -124,6 +111,21 @@ export default function ChallengeScreen() {
       verificationTimeoutRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    mountTimeRef.current = Date.now();
+    startVerificationTimeout();
+
+    return () => {
+      if (verificationTimeoutRef.current) {
+        clearTimeout(verificationTimeoutRef.current);
+        verificationTimeoutRef.current = null;
+      }
+      if (!resolvedRef.current && requestIdRef.current) {
+        resolveChallengeRequest(requestIdRef.current, { status: 'cancelled', reason: 'dismissed' });
+      }
+    };
+  }, [startVerificationTimeout]);
 
   const beginExtraction = useCallback(() => {
     if (resolvedRef.current || extractingProduct) return;
@@ -148,7 +150,7 @@ export default function ChallengeScreen() {
       if (challengeSeenRef.current) {
         stopVerificationTimeout();
         finish('solved', { finalUrl: url, userAgent: detectedUserAgentRef.current });
-      } else if (Date.now() - mountTimeRef.current > 3500) {
+      } else if (mountTimeRef.current !== null && Date.now() - mountTimeRef.current > 3500) {
         // We've been evaluating this page for over 3.5 seconds and never saw a challenge DOM. 
         // It's highly likely it cleared naturally or we just got unblocked gracefully!
         stopVerificationTimeout();
@@ -214,6 +216,9 @@ export default function ChallengeScreen() {
         mediaPlaybackRequiresUserAction={false}
         javaScriptEnabled={true}
         domStorageEnabled={true}
+        sharedCookiesEnabled={true}
+        thirdPartyCookiesEnabled={true}
+        setSupportMultipleWindows={false}
         bounces={false}
         originWhitelist={['*']}
         onLoadStart={() => setLoading(true)}

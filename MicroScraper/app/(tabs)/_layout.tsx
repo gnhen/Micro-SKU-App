@@ -88,7 +88,6 @@ export default function TabLayout() {
           title: 'Scan',
           href: undefined,
           tabBarButton: isVisible('index') ? undefined : () => null,
-          unmountOnBlur: false,
           tabBarIcon: ({ color, focused }) => isXP ? xpIcon('index', focused) : <Ionicons name="scan" size={28} color={color} />,
         }}
       />
@@ -99,7 +98,6 @@ export default function TabLayout() {
           title: 'List',
           href: undefined,
           tabBarButton: isVisible('list') ? undefined : () => null,
-          unmountOnBlur: false,
           tabBarIcon: ({ color, focused }) => isXP ? xpIcon('list', focused) : <Ionicons name="list" size={28} color={color} />,
         }}
       />
@@ -110,7 +108,6 @@ export default function TabLayout() {
           title: 'PC Builder',
           href: undefined,
           tabBarButton: isVisible('pcbuilder') ? undefined : () => null,
-          unmountOnBlur: false,
           tabBarIcon: ({ color, focused }) => isXP ? xpIcon('pcbuilder', focused) : <Ionicons name="hardware-chip" size={28} color={color} />,
         }}
       />
@@ -121,7 +118,6 @@ export default function TabLayout() {
           title: 'History',
           href: undefined,
           tabBarButton: isVisible('history') ? undefined : () => null,
-          unmountOnBlur: false,
           tabBarIcon: ({ color, focused }) => isXP ? xpIcon('history', focused) : <Ionicons name="time" size={28} color={color} />,
         }}
       />
@@ -132,7 +128,6 @@ export default function TabLayout() {
           title: 'Settings',
           href: undefined,
           tabBarButton: isVisible('explore') ? undefined : () => null,
-          unmountOnBlur: false,
           tabBarIcon: ({ color, focused }) => isXP ? xpIcon('explore', focused) : <Ionicons name="settings" size={28} color={color} />,
         }}
       />

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Alert, Platform } from 'react-native';
+import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Dynamic app icon requires a custom dev client or production build.
@@ -112,9 +112,13 @@ interface SettingsContextValue {
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
 export function useSettings(): SettingsContextValue {
-  const ctx = useContext(SettingsContext);
+  const ctx = useOptionalSettings();
   if (!ctx) throw new Error('useSettings must be used within SettingsProvider');
   return ctx;
+}
+
+export function useOptionalSettings(): SettingsContextValue | null {
+  return useContext(SettingsContext);
 }
 
 function computeVisibility(tabs: TabRoute[]): {

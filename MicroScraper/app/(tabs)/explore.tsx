@@ -5,9 +5,9 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, useFocusEffect, usePathname } from 'expo-router';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { STORES } from '../../constants';
-import versionInfo from '../../version.json';
 import { checkForUpdates } from '../../services/updateChecker';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors, TAB_BAR_CLEARANCE, XP_CHROME, XP_FONT, XP_TITLE_BAR, XP_WINDOW, xpDialogTitle } from '@/constants/theme';
@@ -19,9 +19,7 @@ import {
   OPTIONAL_TABS,
   DEPARTMENT_DEFAULTS,
   TabRoute,
-  Department,
   ThemePreference,
-  AppIconPreference,
   APP_ICON_OPTIONS,
   APP_ICON_RESOLVED,
 } from '@/contexts/SettingsContext';
@@ -60,7 +58,6 @@ export default function SettingsScreen() {
     selectedTabs,
     setDepartment,
     setSelectedTabs,
-    showMoreTab,
     themePreference,
     setThemePreference,
     appIcon,
@@ -213,7 +210,7 @@ export default function SettingsScreen() {
           <View style={[styles.infoBanner, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Ionicons name="information-circle-outline" size={18} color={accent} />
             <Text style={{ color: theme.text, flex: 1, fontSize: 13 }}>
-              More than 4 tabs selected — Settings will move to the "More" tab.
+              More than 4 tabs selected — Settings will move to the &quot;More&quot; tab.
             </Text>
           </View>
         )}
@@ -342,7 +339,7 @@ export default function SettingsScreen() {
           onPress={() => Linking.openURL('https://github.com/gnhen/Micro-SKU-App/releases/latest')}
         >
           <Text style={[styles.label, { color: theme.text }]}>View Latest Release</Text>
-          <Text style={[{ color: accent, fontSize: 16 }, xpFont]}>{latestVersion ? latestVersion : `v${versionInfo.version}`}</Text>
+          <Text style={[{ color: accent, fontSize: 16 }, xpFont]}>{latestVersion ? latestVersion : `v${Constants.expoConfig?.version ?? 'unknown'}`}</Text>
         </TouchableOpacity>
 
         <View style={{ height: 40 }} />
@@ -351,7 +348,7 @@ export default function SettingsScreen() {
             🖥️ Welcome to Micro SKU App XP Edition
           </Text>
         )}
-        <Text style={styles.versionText}>Build v{versionInfo.version} - by Grant Hendricks</Text>
+        <Text style={styles.versionText}>Build v{Constants.expoConfig?.version ?? 'unknown'} - by Grant Hendricks</Text>
         {storeId === '071' && <Text style={[styles.versionText, { color: '#727272', fontWeight: '200', marginTop: 6 }]}>Sharonville Rocks</Text>}
         <View style={{ height: 30 }} />
       </ScrollView>

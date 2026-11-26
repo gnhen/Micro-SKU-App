@@ -1,11 +1,25 @@
 const BASE_URL = 'https://www.microcenter.com';
 const CART_URL = 'https://cart.microcenter.com';
 
+type StatusCallback = (message: string) => void;
+type JsonRecord = Record<string, unknown>;
+type ProductSpec = { label: string; value: string; group?: string };
+
+const isRecord = (value: unknown): value is JsonRecord =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const errorMessage = (error: unknown): string => {
+  if (error !== null && typeof error === 'object' && 'message' in error && error.message) {
+    return String(error.message);
+  }
+  return String(error);
+};
+
 // Rate limiting to avoid 403 errors
 let lastRequestTime = 0;
 const MIN_REQUEST_INTERVAL = 2000; // 2 seconds between requests
 
-const waitForRateLimit = async (onStatus) => {
+const waitForRateLimit = async (onStatus?: StatusCallback): Promise<void> => {
   // Reserve this call's slot synchronously (before any `await`) so concurrent callers
   // each claim a distinct, properly spaced slot instead of racing on a stale lastRequestTime.
   const now = Date.now();
@@ -25,8 +39,8 @@ const waitForRateLimit = async (onStatus) => {
  * Retry a fetch with exponential backoff for transient failures.
  * Retries up to `maxRetries` times with 1s, 2s, 4s delays.
  */
-const fetchWithRetry = async (url, headers, maxRetries = 2, onStatus?: (msg: string) => void): Promise<Response> => {
-  let lastError: Error | null = null;
+const fetchWithRetry = async (url: string, headers: HeadersInit, maxRetries = 2, onStatus?: StatusCallback): Promise<Response> => {
+  let lastError: unknown = null;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const response = await fetch(url, { headers });
@@ -36,10 +50,10 @@ const fetchWithRetry = async (url, headers, maxRetries = 2, onStatus?: (msg: str
       }
       return response;
     } catch (err) {
-      lastError = err as Error;
+      lastError = err;
       if (attempt < maxRetries) {
         const delay = Math.pow(2, attempt) * 1000; // 1s, 2s
-        const msg = `Transient error (${err?.message || err}), retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`;
+        const msg = `Transient error (${errorMessage(err)}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`;
         console.log(`[fetchWithRetry] ${msg}`);
         if (onStatus) onStatus(msg);
         await new Promise(r => setTimeout(r, delay));
@@ -65,7 +79,7 @@ const HEADERS = {
 
 let runtimeUserAgent = HEADERS['User-Agent'];
 
-export const setScraperUserAgent = (userAgent) => {
+export const setScraperUserAgent = (userAgent: unknown) => {
   if (typeof userAgent === 'string' && userAgent.trim().length > 0) {
     runtimeUserAgent = userAgent.trim();
     console.log('[scraper] Updated runtime user-agent from challenge session');
@@ -97,8 +111,8 @@ const getCartFormHeaders = () => ({
 
 // A cart line item leaks the exact on-hand count via QuantityInStock. When more than one
 // item is in the session cart, match ours by SKU (or product id) instead of guessing.
-const cartItemMatchesProduct = (item, sku, productId) => {
-  if (!item || typeof item !== 'object') return false;
+const cartItemMatchesProduct = (item: unknown, sku: string | number, productId: string | number): boolean => {
+  if (!isRecord(item)) return false;
   const wantSku = String(sku);
   const wantPid = String(productId);
   for (const key of Object.keys(item)) {
@@ -111,8 +125,10 @@ const cartItemMatchesProduct = (item, sku, productId) => {
 };
 
 // Parse every /cart/cartremove form on the page and extract its identifiers + token.
-const parseCartRemoveForms = (cartHtml) => {
-  const forms = [];
+type CartRemoveForm = { itemId: string; compositeKey: string; token: string };
+
+const parseCartRemoveForms = (cartHtml: string): CartRemoveForm[] => {
+  const forms: CartRemoveForm[] = [];
   const formRe = /<form[^>]*action="\/cart\/cartremove"[^>]*>([\s\S]*?)<\/form>/gi;
   const pageToken = cartHtml.match(/__RequestVerificationToken[^>]*value="([^"]+)"/i)?.[1] || null;
   let m;
@@ -127,28 +143,34 @@ const parseCartRemoveForms = (cartHtml) => {
 };
 
 // Check whether an item's values contain a given ID string (for form matching).
-const itemContainsId = (item, id) => {
-  if (!item || typeof item !== 'object') return false;
+const itemContainsId = (item: unknown, id: string): boolean => {
+  if (!isRecord(item)) return false;
   return Object.values(item).some((v) => String(v).replace(/^0+/, '') === String(id).replace(/^0+/, ''));
 };
 
-// Remove a specific cart line item using its HTML form.
-const removeCartLineItem = async (form, onStatus) => {
-  try {
-    await waitForRateLimit(onStatus);
-    const res = await fetch(`${CART_URL}/cart/cartremove`, {
-      method: 'POST',
-      headers: getCartFormHeaders(),
-      body: new URLSearchParams({
-        __RequestVerificationToken: form.token,
-        ItemId: String(form.itemId),
-        CompositeKey: String(form.compositeKey),
-      }).toString(),
-    });
-    if (!res.ok) console.log('[resolveExactStock] cartremove failed', res.status);
-  } catch (error) {
-    console.log('[resolveExactStock] Cart cleanup failed:', error?.message || error);
+// Remove a specific cart line item using its HTML form. Retries once, because a failed
+// removal leaves a stray item in the person's real session cart.
+const removeCartLineItem = async (form: CartRemoveForm, onStatus?: StatusCallback): Promise<boolean> => {
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await waitForRateLimit(onStatus);
+      const res = await fetch(`${CART_URL}/cart/cartremove`, {
+        method: 'POST',
+        headers: getCartFormHeaders(),
+        body: new URLSearchParams({
+          __RequestVerificationToken: form.token,
+          ItemId: String(form.itemId),
+          CompositeKey: String(form.compositeKey),
+        }).toString(),
+      });
+      if (res.ok) return true;
+      console.warn(`[resolveExactStock] cartremove failed (attempt ${attempt}/${maxAttempts})`, res.status);
+    } catch (error) {
+      console.warn(`[resolveExactStock] Cart cleanup failed (attempt ${attempt}/${maxAttempts}):`, errorMessage(error));
+    }
   }
+  return false;
 };
 
 // Recover the real per-store on-hand quantity for a product whose visible stock is capped
@@ -156,7 +178,17 @@ const removeCartLineItem = async (form, onStatus) => {
 // then removes the line item. Relies on the session cookies set by the just-fetched product
 // page (the native fetch cookie store spans www/cart just like the reference curl jar).
 // Returns the exact quantity (>= 0), or null if it couldn't be determined.
-export const resolveExactStock = async ({ productId, sku, storeId, refererUrl, onStatus } = {}) => {
+type ResolveExactStockOptions = {
+  productId?: string | number;
+  sku?: string | number;
+  storeId?: string | number;
+  refererUrl?: string;
+  onStatus?: StatusCallback;
+};
+
+export const resolveExactStock = async (
+  { productId, sku, storeId, refererUrl, onStatus }: ResolveExactStockOptions = {},
+): Promise<number | null> => {
   const normalizedStoreId = String(storeId || '').replace(/\D/g, '');
   if (!productId || !sku || !normalizedStoreId) return null;
 
@@ -195,9 +227,9 @@ export const resolveExactStock = async ({ productId, sku, storeId, refererUrl, o
     // 2. The cart page leaks the exact on-hand quantity for every line item.
     await waitForRateLimit(onStatus);
     const cartResponse = await fetchWithRetry(CART_URL, getRequestHeaders(), 2, onStatus);
-    let quantity = null;
+    let quantity: number | null = null;
     let cartHtml = '';
-    let removeForm = null;
+    let removeForm: CartRemoveForm | null = null;
 
     if (cartResponse.ok) {
       cartHtml = await cartResponse.text();
@@ -205,10 +237,10 @@ export const resolveExactStock = async ({ productId, sku, storeId, refererUrl, o
       const cartItemsMatch = cartHtml.match(/var\s+cartItems\s*=\s*(\[[\s\S]*?\]);/);
       if (cartItemsMatch && cartItemsMatch[1]) {
         try {
-          const items = JSON.parse(cartItemsMatch[1]);
+          const items: unknown = JSON.parse(cartItemsMatch[1]);
           if (Array.isArray(items) && items.length > 0) {
-            const target = items.find((it) => cartItemMatchesProduct(it, sku, productId));
-            if (target) {
+            const target = items.find((it: unknown) => cartItemMatchesProduct(it, sku, productId));
+            if (isRecord(target)) {
               const qoh = Number(target.QuantityInStock);
               if (Number.isFinite(qoh)) quantity = Math.max(0, qoh);
 
@@ -218,24 +250,24 @@ export const resolveExactStock = async ({ productId, sku, storeId, refererUrl, o
                 (forms.length === 1 ? forms[0] : null) ||
                 (forms.length === items.length ? forms[items.indexOf(target)] : null);
             } else {
-              console.log('[resolveExactStock] No cart match. wanted:', sku, productId,
+              console.warn('[resolveExactStock] No cart match. wanted:', sku, productId,
                 'first item:', JSON.stringify(items[0]).slice(0, 600));
             }
           }
         } catch (error) {
-          console.log('[resolveExactStock] Could not parse cartItems:', error?.message || error);
+          console.warn('[resolveExactStock] Could not parse cartItems:', errorMessage(error));
         }
       }
     }
 
     // 3. Clean up the temporary line item (targeted to the exact item we added).
     if (removeForm) await removeCartLineItem(removeForm, onStatus);
-    else if (cartHtml) console.log('[resolveExactStock] No remove form matched, item left in cart');
+    else if (cartHtml) console.warn('[resolveExactStock] No remove form matched, item left in cart');
     if (onStatus) onStatus('');
 
     return quantity;
   } catch (error) {
-    console.log('[resolveExactStock] Unable to resolve exact stock:', error?.message || error);
+    console.warn('[resolveExactStock] Unable to resolve exact stock:', errorMessage(error));
     if (onStatus) onStatus('');
     return null;
   }
@@ -252,12 +284,18 @@ const CHALLENGE_PATTERNS = [
   /cloudflare/i,
 ];
 
-const isChallengePage = (html = '', url = '') => {
+const isChallengePage = (html = '', url = ''): boolean => {
   const probe = `${url}\n${html.slice(0, 12000)}`;
   return CHALLENGE_PATTERNS.some((pattern) => pattern.test(probe));
 };
 
-const buildChallengeRequiredError = ({ sku, storeId, url, stage, status }) => {
+const buildChallengeRequiredError = ({ sku, storeId, url, stage, status }: {
+  sku: string;
+  storeId: string;
+  url: string;
+  stage: string;
+  status: number;
+}) => {
   return {
     error: 'challengeRequired',
     searchedSku: sku,
@@ -273,7 +311,7 @@ const buildChallengeRequiredError = ({ sku, storeId, url, stage, status }) => {
   };
 };
 
-const decodeHtml = (html) => {
+const decodeHtml = (html: string): string => {
   return html
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
@@ -284,7 +322,7 @@ const decodeHtml = (html) => {
     .trim();
 };
 
-const extractReviews = (html) => {
+const extractReviews = (html: string): { rating: number; reviewCount: number } => {
   let rating = 0;
   let reviewCount = 0;
   
@@ -311,7 +349,7 @@ const extractReviews = (html) => {
   return { rating, reviewCount };
 };
 
-const fetchProductDeck = async (productId, refererUrl, onStatus) => {
+const fetchProductDeck = async (productId: string, refererUrl: string | null, onStatus?: StatusCallback): Promise<string | null> => {
   if (!productId) return null;
 
   try {
@@ -328,12 +366,12 @@ const fetchProductDeck = async (productId, refererUrl, onStatus) => {
     });
 
     if (!response.ok) {
-      console.log(`[fetchProductDeck] Attributes request failed: ${response.status}`);
+      console.warn(`[fetchProductDeck] Attributes request failed: ${response.status}`);
       return null;
     }
 
     const text = await response.text();
-    let parsed = null;
+    let parsed: unknown = null;
 
     try {
       parsed = JSON.parse(text);
@@ -341,17 +379,17 @@ const fetchProductDeck = async (productId, refererUrl, onStatus) => {
       return null;
     }
 
-    if (!parsed || typeof parsed !== 'object') return null;
+    if (!isRecord(parsed)) return null;
     const rawDeck = typeof parsed.deck === 'string' ? parsed.deck.trim() : '';
     return rawDeck || null;
   } catch (error) {
-    console.log('[fetchProductDeck] Unable to fetch deck:', error?.message || error);
+    console.warn('[fetchProductDeck] Unable to fetch deck:', errorMessage(error));
     return null;
   }
 };
 
-const extractProInstallation = (html) => {
-  const installations = [];
+const extractProInstallation = (html: string): { name: string; price: number }[] => {
+  const installations: { name: string; price: number }[] = [];
   
   // Find all input/button elements (including checkbox type for installation services)
   const elementPattern = /<(?:input|button)[^>]+>/gi;
@@ -377,8 +415,8 @@ const extractProInstallation = (html) => {
   return installations;
 };
 
-const extractProtectionPlans = (html) => {
-  const plans = [];
+const extractProtectionPlans = (html: string): { name: string; price: number }[] => {
+  const plans: { name: string; price: number }[] = [];
   
   // Find all input type="radio" elements, then check if they have plan data
   const elementPattern = /<input[^>]+type\s*=\s*["']radio["'][^>]*>/gi;
@@ -404,7 +442,7 @@ const extractProtectionPlans = (html) => {
   return plans;
 };
 
-const extractLocation = (html) => {
+const extractLocation = (html: string): string | null => {
   const locationMatch = html.match(/<span>Located In ([^<]+)(?:<span[^>]*class=['"][^'"]*otherLocation[^'"]*['"][^>]*>([^<]+)<\/span>)?<\/span>/i);
   if (locationMatch) {
     let location = locationMatch[1].trim();
@@ -418,7 +456,7 @@ const extractLocation = (html) => {
   return null;
 };
 
-const extractStoreInventoryQoh = (html, storeId) => {
+const extractStoreInventoryQoh = (html: string, storeId: string | number): number | null => {
   const normalizedStoreId = String(storeId || '').replace(/\D/g, '');
   if (!normalizedStoreId) return null;
 
@@ -426,11 +464,12 @@ const extractStoreInventoryQoh = (html, storeId) => {
   if (!inventoryMatch || !inventoryMatch[1]) return null;
 
   try {
-    const inventory = JSON.parse(inventoryMatch[1]);
+    const inventory: unknown = JSON.parse(inventoryMatch[1]);
     if (!Array.isArray(inventory)) return null;
 
-    const entry = inventory.find((item) => String((item && item.storeNumber) || '').replace(/\D/g, '') === normalizedStoreId);
-    if (!entry || entry.qoh === undefined || entry.qoh === null) return null;
+    const entry = inventory.find((item: unknown) =>
+      isRecord(item) && String(item.storeNumber || '').replace(/\D/g, '') === normalizedStoreId);
+    if (!isRecord(entry) || entry.qoh === undefined || entry.qoh === null) return null;
 
     const qoh = Number(entry.qoh);
     return Number.isFinite(qoh) ? qoh : null;
@@ -439,7 +478,7 @@ const extractStoreInventoryQoh = (html, storeId) => {
   }
 };
 
-const extractStock = (html, storeId) => {
+const extractStock = (html: string, storeId: string | number): { stockText: string | null; stock: number; inStock: boolean } => {
   let stockText = null;
   let stock = 0;
   let inStock = false;
@@ -539,7 +578,7 @@ const extractStock = (html, storeId) => {
   return { stockText, stock, inStock };
 };
 
-const extractOpenBoxText = (html) => {
+const extractOpenBoxText = (html: string): string | null => {
   const buttonMatch = html.match(/<button[^>]*class=['"][^'"]*openBoxModalButton[^'"]*['"][^>]*>([\s\S]*?)<\/button>/i);
   if (!buttonMatch) return null;
 
@@ -559,7 +598,7 @@ const extractOpenBoxText = (html) => {
   return `${count} Open Box: ${fromPriceText}`;
 };
 
-const extractLimitPerHousehold = (html) => {
+const extractLimitPerHousehold = (html: string): string | null => {
   const match = String(html || '').match(/<p[^>]*class=['"][^'"]*limitPerHouse[^'"]*['"][^>]*>([\s\S]*?)<\/p>/i);
   if (!match || !match[1]) return null;
 
@@ -573,7 +612,7 @@ const extractLimitPerHousehold = (html) => {
   return text || null;
 };
 
-const pageContainsUpc = (html, upc) => {
+const pageContainsUpc = (html: string, upc: string): boolean => {
   const searchedUpc = String(upc || '').replace(/\D/g, '');
   if (!searchedUpc) return false;
 
@@ -593,9 +632,9 @@ const pageContainsUpc = (html, upc) => {
   return false;
 };
 
-const extractTieredPricing = (html) => {
+const extractTieredPricing = (html: string): string[] => {
   const source = String(html || '');
-  const tiers = [];
+  const tiers: string[] = [];
 
   const anchorIdx = source.search(/id=['"]options-pricing2022['"]/i);
   if (anchorIdx === -1) return tiers;
@@ -623,7 +662,7 @@ const extractTieredPricing = (html) => {
   return tiers;
 };
 
-const extractMemberSaving = (html) => {
+const extractMemberSaving = (html: string): { amount: number; text: string } | null => {
   const cleanText = decodeHtml(
     String(html || '')
       .replace(/<[^>]+>/g, ' ')
@@ -637,7 +676,7 @@ const extractMemberSaving = (html) => {
     /Members?\s+Save\s+\$([0-9,]+(?:\.[0-9]{1,2})?)/i,
   ];
 
-  let amount = null;
+  let amount: number | null = null;
 
   for (const pattern of patterns) {
     const match = html.match(pattern) || cleanText.match(pattern);
@@ -653,7 +692,7 @@ const extractMemberSaving = (html) => {
     }
   }
 
-  if (!Number.isFinite(amount)) return null;
+  if (amount === null || !Number.isFinite(amount)) return null;
 
   return {
     amount,
@@ -661,15 +700,15 @@ const extractMemberSaving = (html) => {
   };
 };
 
-const extractSpecsFromFeatures = (html) => {
-  const specs = [];
+const extractSpecsFromFeatures = (html: string): ProductSpec[] => {
+  const specs: ProductSpec[] = [];
   
   const zFeaturesMatch = html.match(/"z_features"\s*:\s*"([^"]+)"/);
   if (zFeaturesMatch && zFeaturesMatch[1]) {
     const featuresString = zFeaturesMatch[1];
     const featurePairs = featuresString.split(' | ');
     
-    featurePairs.forEach(pair => {
+    featurePairs.forEach((pair: string) => {
       const groupMatch = pair.match(/Group:([^,]+)/);
       const featureMatch = pair.match(/Feature:([^,]+)/);
       const valueMatch = pair.match(/Value:(.+)/);
@@ -694,8 +733,8 @@ const extractSpecsFromFeatures = (html) => {
   return specs;
 };
 
-const extractSpecs = (html) => {
-  const specs = [];
+const extractSpecs = (html: string): ProductSpec[] => {
+  const specs: ProductSpec[] = [];
   
   const infoPattern = /<strong[^>]*class=['"]lbl['"][^>]*>([^<]+)<\/strong>\s*<span[^>]*class=['"]item['"][^>]*>([^<]+)<\/span>/gi;
   let match;
@@ -741,25 +780,30 @@ const extractSpecs = (html) => {
  * Tries multiple strategies: JSON-LD, window vars, <img> tags, and data attributes.
  * Falls back to the generated URL pattern if nothing is found.
  */
-const extractImageUrlsFromHtml = (productHtml, productId, sku) => {
+const extractImageUrlsFromHtml = (productHtml: string, productId: string, sku: string): string[] | null => {
   const found = new Set<string>();
+  const addImages = (images: unknown): void => {
+    if (Array.isArray(images)) {
+      for (const img of images as unknown[]) {
+        if (typeof img === 'string' && img.startsWith('http')) {
+          found.add(img);
+        } else if (isRecord(img)) {
+          if (typeof img.contentUrl === 'string') found.add(img.contentUrl);
+          else if (typeof img.url === 'string') found.add(img.url);
+        }
+      }
+    } else if (typeof images === 'string' && images.startsWith('http')) {
+      found.add(images);
+    }
+  };
 
   // Strategy 1: JSON-LD structured data (schema.org Product)
   const jsonLdMatch = productHtml.match(/<script\s+type=["']application\/ld\+json["']>([\s\S]*?)<\/script>/gi);
   if (jsonLdMatch) {
     for (const block of jsonLdMatch) {
       try {
-        const obj = JSON.parse(block);
-        const images = obj?.image;
-        if (Array.isArray(images)) {
-          for (const img of images) {
-            if (typeof img === 'string' && img.startsWith('http')) found.add(img);
-            else if (typeof img === 'object' && img?.contentUrl) found.add(img.contentUrl);
-            else if (typeof img === 'object' && img?.url) found.add(img.url);
-          }
-        } else if (typeof images === 'string' && images.startsWith('http')) {
-          found.add(images);
-        }
+        const obj: unknown = JSON.parse(block);
+        if (isRecord(obj)) addImages(obj.image);
       } catch { /* ignore parse errors */ }
     }
   }
@@ -769,17 +813,8 @@ const extractImageUrlsFromHtml = (productHtml, productId, sku) => {
   for (const match of varMatches) {
     try {
       const jsonStr = match[1];
-      const obj = JSON.parse(jsonStr);
-      const images = obj?.image || obj?.images || obj?.productImage || obj?.productImages;
-      if (Array.isArray(images)) {
-        for (const img of images) {
-          if (typeof img === 'string' && img.startsWith('http')) found.add(img);
-          else if (typeof img === 'object' && img?.contentUrl) found.add(img.contentUrl);
-          else if (typeof img === 'object' && img?.url) found.add(img.url);
-        }
-      } else if (typeof images === 'string' && images.startsWith('http')) {
-        found.add(images);
-      }
+      const obj: unknown = JSON.parse(jsonStr);
+      if (isRecord(obj)) addImages(obj.image || obj.images || obj.productImage || obj.productImages);
     } catch { /* ignore */ }
   }
 
@@ -814,11 +849,16 @@ const extractImageUrlsFromHtml = (productHtml, productId, sku) => {
   return uniqueUrls.length > 0 ? uniqueUrls : null;
 };
 
-export const fetchProductBySku = async (sku, storeId = '071', onStatus, options = {}) => {
+export const fetchProductBySku = async (
+  sku: string,
+  storeId = '071',
+  onStatus?: StatusCallback,
+  options: { deferStockResolution?: boolean } = {},
+) => {
   try {
     console.log(`[fetchProductBySku] Starting fetch for SKU: ${sku}, storeId: ${storeId}`);
-    let productId = null;
-    let productUrl = null;
+    let productId: string | null = null;
+    let productUrl: string | null = null;
     let originalSku = sku;
     let expectedSearchSku = typeof sku === 'string' ? sku.trim() : '';
     const originalInputLower = typeof originalSku === 'string' ? originalSku.toLowerCase() : '';
@@ -843,7 +883,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus, options 
       return { error: "noResults", searchedSku: sku || '' };
     }
 
-    let productHtml;
+    let productHtml: string | undefined;
 
     if (!productId) {
       let searchUrl;
@@ -1071,6 +1111,10 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus, options 
       }
     }
 
+    if (!productUrl) {
+      throw new Error('Product URL not found');
+    }
+
     if (typeof productHtml === 'undefined') {
         console.log(`[fetchProductBySku] Fetching product page: ${productUrl}`);
         await waitForRateLimit(onStatus); // Wait to avoid rate limiting
@@ -1126,13 +1170,13 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus, options 
 
     if (h2Match) {
       productName = decodeHtml(h2Match[1].replace(/<[^>]+>/g, '').trim());
-      contentStartIndex = h2Match.index;
+      contentStartIndex = h2Match.index ?? 0;
     } else if (h1DataMatch) {
       productName = decodeHtml(h1DataMatch[1]);
-      contentStartIndex = h1DataMatch.index;
+      contentStartIndex = h1DataMatch.index ?? 0;
     } else if (h1Match) {
       productName = decodeHtml(h1Match[1].replace(/<[^>]+>/g, '').trim());
-      contentStartIndex = h1Match.index;
+      contentStartIndex = h1Match.index ?? 0;
     } else if (ogTitleMatch) {
       // Strip " - Micro Center" / " | Micro Center" / "| Micro Center" suffixes
       productName = decodeHtml(ogTitleMatch[1].replace(/\s*[\-|]\s*(Micro.?Center.*)?$/i, '').trim());
@@ -1296,7 +1340,7 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus, options 
           refererUrl: productUrl,
           onStatus,
         });
-        if (Number.isFinite(exactStock)) {
+        if (exactStock !== null && Number.isFinite(exactStock)) {
           stockInfo.stock = exactStock;
           stockInfo.inStock = exactStock > 0;
           stockInfo.stockText = exactStock > 0 ? `${exactStock} in Stock` : '0 in Stock';
@@ -1335,8 +1379,8 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus, options 
 
     console.log('All extracted specs:', detailedSpecs.slice(0, 20));
     
-    const specsByGroup = {};
-    const protectionPlanSpecs = [];
+    const specsByGroup: Record<string, string[]> = {};
+    const protectionPlanSpecs: string[] = [];
     const protectionPlanPattern = /\d+\s*Year\s*(?:Replacement|Protection)\s*Plan/i;
     
     detailedSpecs.forEach(spec => {
@@ -1414,14 +1458,14 @@ export const fetchProductBySku = async (sku, storeId = '071', onStatus, options 
 
   } catch (error) {
     console.error("[fetchProductBySku] Scrape Error:", error);
-    console.error("[fetchProductBySku] Error stack:", error.stack);
-    return { error: error.message };
+    console.error("[fetchProductBySku] Error stack:", error instanceof Error ? error.stack : undefined);
+    return { error: errorMessage(error) };
   }
 };
 
 // ── Text / keyword search ─────────────────────────────────────────────────────
 // Returns { results: [{sku, name, price, url}] } or { singleUrl } or { error }
-const parseSearchResultsFromHtml = (html, storeId, maxResults = 24) => {
+const parseSearchResultsFromHtml = (html: string, storeId: string, maxResults = 24) => {
   const sortIdx = html.indexOf('Sort by:');
   const relevantHtml = sortIdx > -1 ? html.substring(sortIdx) : html;
 
@@ -1474,7 +1518,7 @@ const parseSearchResultsFromHtml = (html, storeId, maxResults = 24) => {
   return results;
 };
 
-export const fetchTextSearch = async (query, storeId = '071') => {
+export const fetchTextSearch = async (query: string, storeId = '071') => {
   try {
     const encoded = encodeURIComponent(query.trim());
     const searchUrl = `${BASE_URL}/search/search_results.aspx?Ntt=${encoded}&searchButton=search&storeid=${storeId}`;
@@ -1514,6 +1558,6 @@ export const fetchTextSearch = async (query, storeId = '071') => {
     return { results };
   } catch (error) {
     console.error('[fetchTextSearch] Error:', error);
-    return { error: error.message };
+    return { error: errorMessage(error) };
   }
 };

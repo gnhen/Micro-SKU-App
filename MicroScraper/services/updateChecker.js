@@ -1,5 +1,5 @@
 import { Alert, Linking, Platform } from 'react-native';
-import versionInfo from '../version.json';
+import Constants from 'expo-constants';
 import { getRemoteState } from './remoteState';
 
 // Configure your GitHub repo here
@@ -39,8 +39,11 @@ export const checkForUpdates = async (silentOnUpToDate = false) => {
       return null;
     }
 
+    const appVersion = Constants.expoConfig?.version;
+    if (!appVersion) return null;
+
     const latestVersion = release.tag_name; // e.g., "v0.1.2"
-    const currentVersion = `v${versionInfo.version}`; // e.g., "v0.1.1"
+    const currentVersion = `v${appVersion}`; // e.g., "v0.1.1"
 
     // Check if latestVersion is actually newer than currentVersion
     // compareVersions returns -1 if current < latest

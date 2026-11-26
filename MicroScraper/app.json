@@ -2,14 +2,14 @@
   "expo": {
     "name": "Micro SKU App",
     "slug": "MicroScraper",
-    "version": "0.4.110",
+    "version": "0.4.112",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "microscraper",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.microscraper.app",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "supportsTablet": true,
       "infoPlist": {
         "NSUserActivityTypes": [
@@ -23,7 +23,7 @@
     },
     "android": {
       "package": "com.microscraper.app",
-      "versionCode": 7,
+      "versionCode": 8,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -124,7 +124,8 @@
             }
           }
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Text, View, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Alert, Image, Modal, Dimensions, Platform, StatusBar, Linking, ActivityIndicator,
+  StyleSheet, Alert, Image, Modal, Dimensions, StatusBar, Linking, ActivityIndicator,
   LayoutAnimation,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -13,9 +13,10 @@ import { fetchProductBySku, fetchTextSearch, setScraperUserAgent, resolveExactSt
 import { useFocusEffect } from 'expo-router/react-navigation';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { GestureHandlerRootView, PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS, withRepeat, withTiming, withSequence, withDelay, Easing } from 'react-native-reanimated';
-import { WebView } from 'react-native-webview';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withRepeat, withTiming, withSequence, withDelay, Easing } from 'react-native-reanimated';
+import type { BarcodeScanningResult } from 'expo-camera';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { createChallengeRequest } from '@/services/challengeSession';
 import { Colors, TAB_BAR_CLEARANCE, XP_CHROME, XP_FONT, XP_WINDOW, xpDialogTitle } from '@/constants/theme';
 import { STORES } from '../../constants';
 import { initDatabase, addComponent } from '@/services/database';
@@ -36,6 +37,161 @@ import { useChallengeSolver } from '@/hooks/useChallengeSolver';
 const LIST_STORAGE_KEY = 'itemLists';
 const HOME_TITLE_KEY = 'homeScreenTitle';
 const DEFAULT_HOME_TITLE = 'Micro SKU App';
+
+interface ProductService {
+  name: string;
+  price: number;
+}
+
+interface ProductReview {
+  rating: number;
+  reviewCount: number;
+}
+
+interface ProductData {
+  sku: string;
+  name: string;
+  price: string | null;
+  sale_price?: string | null;
+  brand?: string | null;
+  originalPrice?: string | null;
+  savings?: string | null;
+  stockText?: string | null;
+  stock?: number | null;
+  inStock?: boolean | null;
+  stockResolving?: boolean;
+  openBoxText?: string | null;
+  limitPerHousehold?: string | null;
+  tieredPricing?: string[];
+  memberSaving?: string | null;
+  memberSavingAmount?: number | null;
+  location?: string | null;
+  imageUrl?: string | null;
+  imageUrls?: string[];
+  url?: string | null;
+  productId?: string | null;
+  deck?: string | null;
+  mfrPart?: string | null;
+  upc?: string | null;
+  reviews?: ProductReview | null;
+  proInstallation?: ProductService[];
+  protectionPlans?: ProductService[];
+  detailedSpecs?: string[];
+  specs?: string[];
+  error?: never;
+}
+
+interface ProductFetchError {
+  error: string;
+  searchedSku?: string;
+  foundSku?: string;
+  challenge?: ChallengeData;
+  results?: TextSearchResult[];
+}
+
+interface ChallengeData {
+  url?: string;
+  [key: string]: unknown;
+}
+
+interface ChallengeOutcome {
+  status: 'solved' | 'failed';
+  finalUrl?: string;
+  userAgent?: string | null;
+  reason?: string;
+  productData?: ProductData;
+}
+
+interface TextSearchResult {
+  sku: string;
+  name: string;
+  price: string | null;
+  url: string;
+  imageUrl: string | null;
+  stockText: string | null;
+}
+
+interface TextSearchResponse {
+  singleUrl?: string;
+  results?: TextSearchResult[];
+  error?: string;
+  challenge?: ChallengeData;
+}
+
+interface SearchHistoryEntry {
+  sku: string;
+  name: string;
+  price: string | null;
+  date: string;
+}
+
+type FetchProductResult = ProductData | ProductFetchError;
+type StoredListItem = Omit<ListItem, 'quantity'> & { quantity?: number };
+type StoredItemList = Omit<ItemList, 'items'> & { items: StoredListItem[] };
+
+type PanGestureEvent = {
+  nativeEvent: { translationX: number; translationY: number; state?: number };
+};
+type PinchGestureEvent = { nativeEvent: { scale: number; state?: number } };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function parseStoredArray<T>(
+  raw: string | null,
+  isItem: (value: unknown) => value is T
+): T[] {
+  const parsed: unknown = safeParse(raw);
+  return Array.isArray(parsed) ? parsed.filter(isItem) : [];
+}
+
+function isHistoryEntry(value: unknown): value is SearchHistoryEntry {
+  return isRecord(value)
+    && typeof value.sku === 'string'
+    && typeof value.name === 'string'
+    && (typeof value.price === 'string' || value.price === null)
+    && typeof value.date === 'string';
+}
+
+function isProductData(value: unknown): value is ProductData {
+  if (!isRecord(value)) return false;
+  return typeof value.sku === 'string'
+    && typeof value.name === 'string'
+    && (typeof value.price === 'string' || value.price === null);
+}
+
+function isStoredListItem(value: unknown): value is StoredListItem {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.sku === 'string'
+    && typeof value.name === 'string'
+    && (typeof value.price === 'number' || value.price === null)
+    && typeof value.rawPrice === 'string'
+    && typeof value.storeId === 'string'
+    && typeof value.date === 'string'
+    && (value.quantity === undefined || typeof value.quantity === 'number')
+    && (value.stockText === undefined || typeof value.stockText === 'string' || value.stockText === null)
+    && (value.inStock === undefined || typeof value.inStock === 'boolean' || value.inStock === null);
+}
+
+function isStoredList(value: unknown): value is StoredItemList {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.name !== 'string' || !Array.isArray(value.items)) {
+    return false;
+  }
+  return value.items.every(isStoredListItem);
+}
+
+function parseStoredLists(raw: string | null): ItemList[] {
+  return parseStoredArray(raw, isStoredList).map((list) => ({
+    ...list,
+    items: list.items.map((item) => ({ ...item, quantity: item.quantity ?? 1 })),
+  }));
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 // A single dot that bounces on a continuous loop, offset by `delay` so a row of them
 // ripples. Used as the placeholder while the exact stock count resolves in the background.
@@ -82,10 +238,10 @@ export default function ScanScreen() {
   const isXP = colorScheme === 'xp';
   const [clippyDismissed, setClippyDismissed] = useState(false);
   const [sku, setSku] = useState('');
-  const [data, setData] = useState(null);
+  const [data, setData] = useState<ProductData | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [storeId, setStoreId] = useState('071');
@@ -97,11 +253,11 @@ export default function ScanScreen() {
 
   const [validImageUrls, setValidImageUrls] = useState<string[]>([]);
   const [zoomImageUrls, setZoomImageUrls] = useState<string[]>([]);
-  const [compingFallbackTried, setCompingFallbackTried] = useState(false);
-  const [singleImageFallbackTried, setSingleImageFallbackTried] = useState(false);
+  const compingFallbackTriedRef = useRef(false);
+  const singleImageFallbackTriedRef = useRef(false);
   const [scannerEnabled, setScannerEnabledState] = useState(true);
   const [addingToBuilder, setAddingToBuilder] = useState(false);
-  const [detectedCategory, setDetectedCategory] = useState(null);
+  const [detectedCategory, setDetectedCategory] = useState<string | null>(null);
   const [addingToList, setAddingToList] = useState(false);
   const [showListPickerModal, setShowListPickerModal] = useState(false);
   const [pendingListItem, setPendingListItem] = useState<ListItem | null>(null);
@@ -113,7 +269,7 @@ export default function ScanScreen() {
   const mismatchAlertActive = useRef<boolean>(false);
   const noResultsAlertActive = useRef<boolean>(false);
   const searchRequestRef = useRef<number>(0);
-  const prevDataRef = useRef<any>(null);
+  const prevDataRef = useRef<ProductData | null>(null);
   // Ref mirrors scannerEnabled so onBarcodeScanned can gate re-entrant calls synchronously,
   // since expo-camera fires the callback faster than React state updates re-render.
   const scannerEnabledRef = useRef<boolean>(true);
@@ -121,9 +277,15 @@ export default function ScanScreen() {
     scannerEnabledRef.current = value;
     setScannerEnabledState(value);
   };
+  const startScanning = () => {
+    setScannerEnabled(true);
+    setScanning(true);
+  };
   // Tracks the productId whose exact stock is currently being resolved in the background,
   // so the resolver effect doesn't fire twice for the same in-flight product.
   const stockResolveRef = useRef<string | null>(null);
+  const panGestureRef = useRef<PanGestureHandler>(null);
+  const pinchGestureRef = useRef<PinchGestureHandler>(null);
   const resultOpacity = useSharedValue(0);
   const resultTranslateY = useSharedValue(18);
   const resultCardStyle = useAnimatedStyle(() => ({
@@ -161,11 +323,11 @@ export default function ScanScreen() {
     savedTranslateY.value = 0;
   };
 
-  const onPinchGesture = (event) => {
+  const onPinchGesture = (event: PinchGestureEvent) => {
     scale.value = savedScale.value * event.nativeEvent.scale;
   };
 
-  const onPinchEnd = (event) => {
+  const onPinchEnd = (event: PinchGestureEvent) => {
     savedScale.value = scale.value;
     if (scale.value < 1) {
       scale.value = withSpring(1);
@@ -177,7 +339,7 @@ export default function ScanScreen() {
     }
   };
 
-  const onPanGesture = (event) => {
+  const onPanGesture = (event: PanGestureEvent) => {
     translateX.value = savedTranslateX.value + event.nativeEvent.translationX;
     translateY.value = savedTranslateY.value + event.nativeEvent.translationY;
   };
@@ -249,7 +411,7 @@ export default function ScanScreen() {
       }
       // microscraper://scan
       else if (url.includes('scan')) {
-        setScanning(true);
+        startScanning();
       }
     };
 
@@ -267,13 +429,6 @@ export default function ScanScreen() {
       subscription.remove();
     };
   }, []);
-
-  // Reset scan lock when starting a new scan session
-  useEffect(() => {
-    if (scanning) {
-      setScannerEnabled(true);
-    }
-  }, [scanning]);
 
   // Handle pending search passed via expo-router params from the history screen.
   const params = useLocalSearchParams();
@@ -310,26 +465,28 @@ export default function ScanScreen() {
       return;
     }
 
-    if (!compingFallbackTried) {
+    if (!compingFallbackTriedRef.current) {
       const compingUrls = zoomImageUrls.map((url) =>
         String(url).replace(/_zoom\.jpg(\?.*)?$/i, '_comping.jpg$1')
       );
 
       const hasReplacement = compingUrls.some((url, idx) => url !== zoomImageUrls[idx]);
-      setCompingFallbackTried(true);
+      compingFallbackTriedRef.current = true;
 
       if (hasReplacement) {
         console.log('All zoom images failed, trying comping fallback URLs');
+        // This effect advances to the next URL set after all current candidates fail.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setValidImageUrls(compingUrls);
       }
       return;
     }
 
-    if (singleImageFallbackTried) return;
+    if (singleImageFallbackTriedRef.current) return;
 
     // idSkuMatch was already extracted above in the guard check
     if (!idSkuMatch) {
-      setSingleImageFallbackTried(true);
+      singleImageFallbackTriedRef.current = true;
       return;
     }
 
@@ -341,10 +498,10 @@ export default function ScanScreen() {
       `https://productimages.microcenter.com/${productId}_${skuFromUrl}.jpg`,
     ]));
 
-    setSingleImageFallbackTried(true);
+    singleImageFallbackTriedRef.current = true;
     console.log('All comping images failed, trying single-image fallback URL');
     setValidImageUrls(singleImageCandidates);
-  }, [data, validImageUrls, zoomImageUrls, compingFallbackTried, singleImageFallbackTried]);
+  }, [data, validImageUrls, zoomImageUrls]);
 
   // Animate result card in when data first arrives (null → something)
   useEffect(() => {
@@ -366,18 +523,18 @@ export default function ScanScreen() {
     if (stockResolveRef.current === productId) return;
     stockResolveRef.current = productId;
 
-    const targetSku = data.sku;
+    const targetSku = data.sku || '';
     const refererUrl = data.url;
     let active = true;
 
     (async () => {
       try {
         const storeId = (await AsyncStorage.getItem('storeId')) || '071';
-        const exact = await resolveExactStock({ productId, sku: targetSku, storeId, refererUrl });
+        const exact = await resolveExactStock({ productId, sku: targetSku, storeId, refererUrl: refererUrl ?? undefined });
         if (!active) return;
-        setData((prev: any) => {
+        setData((prev) => {
           if (!prev || String(prev.productId) !== productId) return prev;
-          const hasExact = Number.isFinite(exact);
+          const hasExact = exact !== null && Number.isFinite(exact);
           return {
             ...prev,
             stockResolving: false,
@@ -411,7 +568,7 @@ export default function ScanScreen() {
   };
 
   const selectedStoreLabel = String(
-    STORES.find((store: any) => String(store?.id) === String(storeId))?.name || `Store ${storeId}`
+    STORES.find((store) => String(store?.id) === String(storeId))?.name || `Store ${storeId}`
   );
 
   const openTitleEditor = () => {
@@ -430,17 +587,16 @@ export default function ScanScreen() {
     }
   };
 
-  const addToHistory = async (productData) => {
+  const addToHistory = async (productData: ProductData) => {
     try {
       const existing = await AsyncStorage.getItem('searchHistory');
-      let history = safeParse(existing, []);
-      
-      history = history.filter(item => item.sku !== productData.sku);
+      const history = parseStoredArray(existing, isHistoryEntry)
+        .filter((item) => item.sku !== productData.sku);
       
       history.unshift({
-        sku: productData.sku,
-        name: productData.name,
-        price: productData.price,
+        sku: productData.sku || '',
+        name: productData.name || '',
+        price: productData.price ?? null,
         date: new Date().toISOString()
       });
 
@@ -463,7 +619,7 @@ export default function ScanScreen() {
 
       // Detect component category
       const specsArray = data.specs || [];
-      const category = detectComponentCategory(data.name, specsArray);
+      const category = detectComponentCategory(data.name || '', specsArray);
 
       if (!category) {
         Alert.alert(
@@ -489,7 +645,7 @@ export default function ScanScreen() {
       // Add component to database
       const componentData = {
         sku: data.sku || sku,
-        name: data.name,
+        name: data.name || '',
         category,
         brand: data.brand || null,
         price: price,
@@ -502,7 +658,7 @@ export default function ScanScreen() {
       await addComponent(componentData);
 
       // Show success with category info
-      const categoryNames = {
+      const categoryNames: Record<string, string> = {
         cpu: 'CPU',
         motherboard: 'Motherboard',
         ram: 'RAM',
@@ -525,7 +681,7 @@ export default function ScanScreen() {
       console.error('Error adding to PC Builder:', error);
       Alert.alert(
         'Error',
-        error.message || 'Failed to add component to PC Builder. Please try again.',
+        errorMessage(error, 'Failed to add component to PC Builder. Please try again.'),
         [{ text: 'OK' }]
       );
     } finally {
@@ -539,7 +695,7 @@ export default function ScanScreen() {
     setAddingToList(true);
     try {
       const raw = await AsyncStorage.getItem(LIST_STORAGE_KEY);
-      const lists: ItemList[] = safeParse(raw, []);
+      const lists = parseStoredLists(raw);
 
       if (lists.length === 0) {
         Alert.alert(
@@ -565,13 +721,14 @@ export default function ScanScreen() {
         rawPrice: data.sale_price || data.price || '—',
         storeId: storeId,
         date: new Date().toISOString(),
+        quantity: 1,
         stockText: data.stockText ?? null,
         inStock: data.inStock ?? null,
       };
 
       const addToListById = async (listId: string) => {
         const latestRaw = await AsyncStorage.getItem(LIST_STORAGE_KEY);
-        const latestLists: ItemList[] = safeParse(latestRaw, lists);
+        const latestLists = parseStoredLists(latestRaw);
         const targetList = latestLists.find(l => l.id === listId);
         if (targetList?.items.some(i => i.sku === newItem.sku)) {
           const addAnyway = await new Promise<boolean>(resolve =>
@@ -603,8 +760,8 @@ export default function ScanScreen() {
         setAvailableListsForPicker(lists);
         setShowListPickerModal(true);
       }
-    } catch (e: any) {
-      Alert.alert('Error', e.message || 'Failed to add to list.');
+    } catch (e: unknown) {
+      Alert.alert('Error', errorMessage(e, 'Failed to add to list.'));
     } finally {
       setAddingToList(false);
     }
@@ -622,7 +779,7 @@ export default function ScanScreen() {
     }
     try {
       const sid = await AsyncStorage.getItem('storeId') || '071';
-      const result = await fetchTextSearch(textQuery.trim(), sid);
+      const result = await fetchTextSearch(textQuery.trim(), sid) as TextSearchResponse;
       
       if (result.singleUrl) {
         // Only one product matched — load it directly and exit text mode
@@ -638,11 +795,11 @@ export default function ScanScreen() {
 
         if (!backgroundAttempted) {
           setError('Micro Center requested verification. Attempting automatic solver...');
-          let backgroundOutcome: any;
+          let backgroundOutcome;
           try {
-            backgroundOutcome = await solveBackgroundChallenge((result as any).challenge, textQuery.trim());
-          } catch (bgErr: any) {
-            console.log('[handleTextSearch] Background solver failed, falling back to visible challenge:', bgErr?.message || bgErr);
+            backgroundOutcome = await solveBackgroundChallenge(result.challenge ?? {}, textQuery.trim());
+          } catch (bgErr: unknown) {
+            console.warn('[handleTextSearch] Background solver failed, falling back to visible challenge:', errorMessage(bgErr, 'Unknown solver error'));
             backgroundOutcome = null;
           }
           if (backgroundOutcome?.status === 'solved') {
@@ -655,7 +812,7 @@ export default function ScanScreen() {
         }
 
         setError('Opening verification prompt. Please wait a moment...');
-        const challengeOutcome: any = await runChallengeFlow((result as any).challenge, textQuery.trim());
+        const challengeOutcome = await runChallengeFlow(result.challenge, textQuery.trim());
         
         if (challengeOutcome?.status === 'solved') {
           if (challengeOutcome?.userAgent) {
@@ -676,14 +833,14 @@ export default function ScanScreen() {
           setError(`No results found for "${textQuery}"`);
         }
       }
-    } catch (e: any) {
-      setError(e.message || 'Search failed');
+    } catch (e: unknown) {
+      setError(errorMessage(e, 'Search failed'));
     } finally {
       setTextSearchLoading(false);
     }
   };
 
-  const applySolvedProductData = (productData: any, fallbackSku: string, fromBarcodeScan: boolean, isURL: boolean) => {
+  const applySolvedProductData = (productData: ProductData, fallbackSku: string, fromBarcodeScan: boolean, isURL: boolean) => {
     const finalData = {
       ...productData,
       sku: productData?.sku || fallbackSku,
@@ -702,8 +859,8 @@ export default function ScanScreen() {
 
     setData(finalData);
     setZoomImageUrls(finalData.imageUrls || []);
-    setCompingFallbackTried(false);
-    setSingleImageFallbackTried(false);
+    compingFallbackTriedRef.current = false;
+    singleImageFallbackTriedRef.current = false;
     setValidImageUrls(finalData.imageUrls || []);
     addToHistory(finalData);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -713,7 +870,7 @@ export default function ScanScreen() {
     }
   };
 
-  const runChallengeFlow = async (challenge: any, searchedSku: string) => {
+  const runChallengeFlow = async (challenge: ChallengeData | undefined, searchedSku: string): Promise<ChallengeOutcome> => {
     const fallbackUrl = `https://www.microcenter.com/search/search_results.aspx?Ntt=${encodeURIComponent(searchedSku)}&searchButton=search&storeid=${storeId}`;
     const payload = {
       searchedSku,
@@ -725,10 +882,10 @@ export default function ScanScreen() {
 
     const { requestId, promise } = createChallengeRequest(payload);
     router.push({ pathname: '/challenge', params: { requestId } });
-    return promise;
+    return promise as Promise<ChallengeOutcome>;
   };
 
-  const extractSkuFromSearchUrl = (value: any): string | null => {
+  const extractSkuFromSearchUrl = (value: unknown): string | null => {
     if (typeof value !== 'string') return null;
     if (!value.toLowerCase().includes('search/search_results.aspx')) return null;
 
@@ -750,18 +907,18 @@ export default function ScanScreen() {
     return null;
   };
 
-  const isProductUrlInput = (value: any): boolean => {
+  const isProductUrlInput = (value: unknown): boolean => {
     return typeof value === 'string' && value.toLowerCase().includes('microcenter.com/product/');
   };
 
-  const handleSearch = async (input: string | null, opts: Partial<{
+  async function handleSearch(input: string | null, opts: Partial<{
     isUPC?: boolean;
     fromBarcodeScan?: boolean;
     challengeAttempted?: boolean;
     backgroundAttempted?: boolean;
     requestedSku?: string | null;
     originalWasUrl?: boolean;
-  }> = {}) => {
+  }> = {}) {
     const { isUPC = false, fromBarcodeScan = false, challengeAttempted = false, backgroundAttempted = false, requestedSku: optRequestedSku, originalWasUrl: optOriginalWasUrl } = opts;
     const targetSku = (typeof input === 'string' && input) ? input : sku;
     if (!targetSku) {
@@ -785,14 +942,14 @@ export default function ScanScreen() {
     setTextResults([]);
     setZoomImageUrls([]);
     setValidImageUrls([]);
-    setCompingFallbackTried(false);
-    setSingleImageFallbackTried(false);
+    compingFallbackTriedRef.current = false;
+    singleImageFallbackTriedRef.current = false;
 
     try {
       const storeId = await AsyncStorage.getItem('storeId') || '071';
-      const result: any = await fetchProductBySku(targetSku, storeId, (msg) => {
+      const result = await fetchProductBySku(targetSku, storeId, (msg) => {
         if (searchRequestRef.current === thisRequestId) setLoadingStatus(msg);
-      }, { deferStockResolution: true });
+      }, { deferStockResolution: true }) as FetchProductResult;
 
       // A newer search has started — discard this stale response
       if (searchRequestRef.current !== thisRequestId) {
@@ -804,7 +961,7 @@ export default function ScanScreen() {
       setLoadingStatus('');
     
     if (result.error) {
-      console.log(`[handleSearch] Error in result: ${result.error}`);
+      console.warn(`[handleSearch] Error in result: ${result.error}`);
       if (result.error === 'challengeRequired') {
         if (challengeAttempted) {
           Alert.alert('Verification Required', 'Verification was completed, but Micro Center is still blocking this request. Please try again in a moment.');
@@ -815,11 +972,11 @@ export default function ScanScreen() {
 
         if (!backgroundAttempted) {
           setError('Micro Center requested verification. Attempting automatic solver...');
-          let backgroundOutcome: any;
+          let backgroundOutcome;
           try {
-            backgroundOutcome = await solveBackgroundChallenge((result as any).challenge, canonicalSku);
-          } catch (bgErr: any) {
-            console.log('[handleSearch] Background solver failed, falling back to visible challenge:', bgErr?.message || bgErr);
+            backgroundOutcome = await solveBackgroundChallenge(result.challenge ?? {}, canonicalSku);
+          } catch (bgErr: unknown) {
+            console.warn('[handleSearch] Background solver failed, falling back to visible challenge:', errorMessage(bgErr, 'Unknown solver error'));
             backgroundOutcome = null;
           }
           if (backgroundOutcome?.status === 'solved') {
@@ -835,7 +992,7 @@ export default function ScanScreen() {
         }
 
         setError('Opening verification prompt. Please wait a moment...');
-        const challengeOutcome = await runChallengeFlow((result as any).challenge, canonicalSku);
+        const challengeOutcome = await runChallengeFlow(result.challenge, canonicalSku);
         if (challengeOutcome?.status === 'solved') {
           if (challengeOutcome?.productData) {
             applySolvedProductData(challengeOutcome.productData, canonicalSku, fromBarcodeScan, isURL);
@@ -885,21 +1042,22 @@ export default function ScanScreen() {
             ]
           );
         }
-      } else if (result.error === "skuMismatch") {
+      } else if (result.error === "skuMismatch" && typeof result.foundSku === 'string') {
+        const foundSku = result.foundSku;
         // Check if the input was a standard 6-digit numeric SKU
         const isNumericSku = /^\d{6}$/.test(canonicalSku);
         
         // If it was a UPC, URL, or non-numeric code (like SC1113), accept the redirect automatically.
         // Codes often redirect to SKUs, so this is usually a success case.
         if (isUPC || isURL || !isNumericSku) {
-           console.log("Auto-redirecting mismatch for Code/UPC/URL. Loading:", result.foundSku);
-           handleSearch(result.foundSku);
+           console.log("Auto-redirecting mismatch for Code/UPC/URL. Loading:", foundSku);
+           handleSearch(foundSku);
         } else if (!mismatchAlertActive.current) {
            // Mismatch on a proper 6-digit SKU. Show alert with options (at most once at a time).
            mismatchAlertActive.current = true;
             Alert.alert(
               "SKU Mismatch", 
-              `Scanned: ${targetSku}\nFound SKU: ${result.foundSku}`,
+              `Scanned: ${targetSku}\nFound SKU: ${foundSku}`,
               [
                 {
                   text: "Cancel",
@@ -913,7 +1071,7 @@ export default function ScanScreen() {
                   text: "View Found Product", 
                   onPress: () => {
                     mismatchAlertActive.current = false;
-                    handleSearch(result.foundSku);
+                    handleSearch(foundSku);
                   }
                 }
               ]
@@ -922,20 +1080,22 @@ export default function ScanScreen() {
       } else {
         Alert.alert("Error", result.error);
       }
-    } else if (result.sku && result.sku !== canonicalSku && !isUPC && !isURL) {
+    } else if (!isProductData(result)) {
+      setError('Product information could not be read. Please try again.');
+    } else if (result.sku !== canonicalSku && !isUPC && !isURL) {
       // SKU mismatch - Micro Center redirected to a different product
       setError(`Incorrect SKU Entry\n\nYou searched for: ${canonicalSku}\n\nPlease verify the SKU and try again.`);
       setData(null);
       setValidImageUrls([]);
-    } else if (result.sku && result.sku !== canonicalSku && (isUPC || isURL)) {
+    } else if (result.sku !== canonicalSku && (isUPC || isURL)) {
        // It was a UPC or URL search that resolved to a valid SKU - Accept it
        const finalData = { ...result, sku: result.sku }; // Use the found SKU
        // If it was a URL, update the input field to the clean SKU so it looks nice
        if (isURL) setSku(result.sku);
        setData(finalData);
        setZoomImageUrls(result.imageUrls || []);
-       setCompingFallbackTried(false);
-      setSingleImageFallbackTried(false);
+       compingFallbackTriedRef.current = false;
+      singleImageFallbackTriedRef.current = false;
        setValidImageUrls(result.imageUrls || []);
        addToHistory(finalData);
        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -943,8 +1103,8 @@ export default function ScanScreen() {
       const finalData = { ...result, sku: canonicalSku };
       setData(finalData);
       setZoomImageUrls(result.imageUrls || []);
-      setCompingFallbackTried(false);
-      setSingleImageFallbackTried(false);
+      compingFallbackTriedRef.current = false;
+      singleImageFallbackTriedRef.current = false;
       setValidImageUrls(result.imageUrls || []);
       addToHistory(finalData);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -955,20 +1115,20 @@ export default function ScanScreen() {
       console.log('[handleSearch] Re-enabling scanner (success)');
       setScannerEnabled(true);
     }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('[handleSearch] Catch block - Search error:', error);
-      console.error('[handleSearch] Error stack:', error.stack);
+      console.error('[handleSearch] Error stack:', error instanceof Error ? error.stack : undefined);
       setLoading(false);
       setLoadingStatus('');
-      setError(error.message || 'An error occurred');
+      setError(errorMessage(error, 'An error occurred'));
       if (fromBarcodeScan) {
         console.log('[handleSearch] Re-enabling scanner (error)');
         setScannerEnabled(true);
       }
     }
-  };
+  }
 
-  const handleBarcodeScanned = ({ data }) => {
+  const handleBarcodeScanned = ({ data }: BarcodeScanningResult) => {
     // Disable scanner immediately to prevent multiple scans. Checked against the ref
     // (not the `scannerEnabled` state) because expo-camera can fire this callback several
     // times before React re-renders with the updated state, letting duplicates slip through.
@@ -981,13 +1141,13 @@ export default function ScanScreen() {
     console.log('[handleBarcodeScanned] Raw barcode data:', data);
     const processedData = processBarcodeData(data);
     console.log('[handleBarcodeScanned] Processed barcode data:', processedData);
-    console.log('[handleBarcodeScanned] Barcode type check - isUPC:', typeof processedData === 'object' && processedData.isUPC, 'isURL:', typeof processedData === 'object' && processedData.isURL);
+    console.log('[handleBarcodeScanned] Barcode type check - isUPC:', typeof processedData !== 'string' && 'isUPC' in processedData, 'isURL:', typeof processedData !== 'string' && 'isURL' in processedData);
     
-    if (typeof processedData === 'object' && processedData.isUPC) {
+    if (typeof processedData !== 'string' && 'isUPC' in processedData) {
       setSku(processedData.value);
       setScanning(false);
       handleSearch(processedData.value, { isUPC: true, fromBarcodeScan: true });
-    } else if (typeof processedData === 'object' && processedData.isURL) {
+    } else if (typeof processedData !== 'string' && 'isURL' in processedData) {
       // Handle URL if needed, for now just pass value
       setSku(processedData.value);
       setScanning(false);
@@ -1124,7 +1284,7 @@ export default function ScanScreen() {
 
             <GlassButton
               style={[styles.searchActionButtonBase, styles.scanActionButton]}
-              onPress={() => setScanning(true)}
+              onPress={startScanning}
             >
               <Ionicons name="scan" size={18} color="white" />
               <Text style={styles.scanActionButtonText}>Scan</Text>
@@ -1271,9 +1431,9 @@ export default function ScanScreen() {
               );
             })()}
           </View>
-          {Array.isArray((data as any)?.tieredPricing) && (data as any).tieredPricing.length > 0 ? (
+          {data.tieredPricing && data.tieredPricing.length > 0 ? (
             <View style={styles.tieredPricingBlock}>
-              {(data as any).tieredPricing.map((tier: string, idx: number) => (
+              {data.tieredPricing.map((tier, idx) => (
                 <Text key={`${tier}-${idx}`} selectable style={styles.tieredPricingText}>{tier}</Text>
               ))}
             </View>
@@ -1297,11 +1457,11 @@ export default function ScanScreen() {
           })()}
 
           <SelectableText style={[styles.productTitle, { color: theme.text }]}>{data.name}</SelectableText>
-          {(data as any)?.limitPerHousehold ? (
-            <Text selectable style={styles.limitPerHouseholdText}>{String((data as any).limitPerHousehold).toUpperCase()}</Text>
+          {data.limitPerHousehold ? (
+            <Text selectable style={styles.limitPerHouseholdText}>{data.limitPerHousehold.toUpperCase()}</Text>
           ) : null}
           {(() => {
-            const savingAmount = Number((data as any).memberSavingAmount);
+            const savingAmount = Number(data.memberSavingAmount);
             if (!Number.isFinite(savingAmount) || savingAmount <= 0) return null;
 
             const priceMatch = String(data.price ?? '').match(/([0-9]+(?:\.[0-9]{1,2})?)/);
@@ -1345,11 +1505,11 @@ export default function ScanScreen() {
             {data.upc && (
               <SelectableText style={[styles.infoText, { color: theme.text }]}>UPC: {data.upc}</SelectableText>
             )}
-            {(((data as any)?.sku) || sku) && (
-              <SelectableText style={[styles.infoText, { color: theme.text }]}>SKU: {((data as any)?.sku) || sku}</SelectableText>
+            {(data.sku || sku) && (
+              <SelectableText style={[styles.infoText, { color: theme.text }]}>SKU: {data.sku || sku}</SelectableText>
             )}
             {(() => {
-              const rawDeck = (data as any)?.deck;
+              const rawDeck = data.deck;
               const normalizedDeck = typeof rawDeck === 'string' && rawDeck.trim().length > 0 ? rawDeck.trim() : 'N/A';
               const deckMeaning = getDeckMeaning(normalizedDeck);
               return (
@@ -1391,7 +1551,7 @@ export default function ScanScreen() {
           )}
 
           {(() => {
-            const filteredSpecs = (data.specs as string[]).filter(s => {
+            const filteredSpecs = (data.specs || []).filter(s => {
               const clean = s.replace(/^[•\s]+/, '').trim();
               if (!clean || /^feature:/i.test(clean)) return false;
               // drop bare single-word category headers with no colon (e.g. "Other")
@@ -1435,7 +1595,7 @@ export default function ScanScreen() {
             <View style={{flexDirection: 'row', width: '100%', gap: 10, marginTop: 15, marginBottom: 10}}>
               <GlassButton
                 style={[styles.openPageButton, { flex: 0.7, marginTop: 0, marginBottom: 0 }]}
-                onPress={() => Linking.openURL(data.url)}
+                onPress={() => Linking.openURL(data.url || '')}
               >
                 <Text style={styles.openPageButtonText}>Open Product Page</Text>
               </GlassButton>
@@ -1444,7 +1604,7 @@ export default function ScanScreen() {
                 style={[styles.openPageButton, { flex: 0.3, marginTop: 0, marginBottom: 0, backgroundColor: '#4da6ff' }]}
                 onPress={async () => {
                   try {
-                    await Clipboard.setStringAsync(data.url);
+                    await Clipboard.setStringAsync(data.url || '');
                     Alert.alert('Success', 'Product link copied to clipboard.');
                   } catch (e) {
                     Alert.alert('Error', 'Failed to copy link.');
@@ -1535,7 +1695,7 @@ export default function ScanScreen() {
                   onPress={async () => {
                     if (!pendingListItem) return;
                     const raw = await AsyncStorage.getItem(LIST_STORAGE_KEY);
-                    const allLists: ItemList[] = safeParse(raw, []);
+                    const allLists = parseStoredLists(raw);
                     const updated = allLists.map(l =>
                       l.id === list.id ? { ...l, items: [...l.items, pendingListItem] } : l
                     );
@@ -1572,22 +1732,24 @@ export default function ScanScreen() {
         <GestureHandlerRootView style={styles.fullScreenContainer}>
           <PanGestureHandler 
             id="pan"
+            ref={panGestureRef}
             onGestureEvent={onPanGesture}
             onHandlerStateChange={(event) => {
               onPanGesture(event);
               if (event.nativeEvent.state === State.END) onPanEnd();
             }}
-            simultaneousHandlers={['pinch']}
+            simultaneousHandlers={pinchGestureRef}
           >
             <Animated.View style={styles.fullScreenGestureSurface}>
               <PinchGestureHandler 
                 id="pinch"
+                ref={pinchGestureRef}
                 onGestureEvent={onPinchGesture}
                 onHandlerStateChange={(event) => {
                   onPinchGesture(event);
                   if (event.nativeEvent.state === State.END) onPinchEnd(event);
                 }}
-                simultaneousHandlers={['pan']}
+                simultaneousHandlers={panGestureRef}
               >
                         <Animated.View
                   style={[

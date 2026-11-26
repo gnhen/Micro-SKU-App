@@ -6,6 +6,13 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Optional. Set these repository secrets to sign with a real release key.
+      # Without them the APK falls back to Expo's shared debug key, which anyone
+      # can sign with, so it should not be distributed to users.
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -30,6 +37,18 @@ jobs:
       - name: Generate Native Android Project
         working-directory: ./MicroScraper
         run: npx expo prebuild --platform android
+
+      - name: Configure release signing
+        working-directory: ./MicroScraper
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+            export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
+          fi
+          node scripts/configureAndroidSigning.mjs
 
       - name: Build APK
         working-directory: ./MicroScraper/android

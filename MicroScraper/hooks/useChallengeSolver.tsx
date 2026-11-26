@@ -51,6 +51,10 @@ export function useChallengeSolver(): UseChallengeSolverReturn {
   }, []);
 
   const solve = useCallback(async (challenge: any, searchedSku: string): Promise<ChallengeResult> => {
+    if (Platform.OS === 'android') {
+      return { status: 'failed', reason: 'interactiveVerificationRequired' };
+    }
+
     const fallbackUrl = `https://www.microcenter.com/search/search_results.aspx?Ntt=${encodeURIComponent(searchedSku)}&searchButton=search&storeid=071`;
     const startUrl = challenge?.url || fallbackUrl;
 

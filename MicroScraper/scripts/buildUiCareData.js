@@ -4,9 +4,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const scriptDir = path.dirname(path.resolve(process.argv[1]));
 
-const csvPath = path.join(__dirname, '../assets/data/uicare.csv');
-const outPath = path.join(__dirname, '../constants/uiCareData.ts');
+const csvPath = path.join(scriptDir, '../assets/data/uicare.csv');
+const outPath = path.join(scriptDir, '../constants/uiCareData.ts');
 
 const csv = fs.readFileSync(csvPath, 'utf8');
 const lines = csv.trim().split('\n').slice(1);

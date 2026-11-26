@@ -78,6 +78,14 @@ eas build --platform android
 eas build --platform ios
 ```
 
+The GitHub Actions APK workflow signs release builds with a dedicated keystore
+when these repository secrets are configured: `ANDROID_KEYSTORE_BASE64` (the
+base64-encoded keystore), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and
+`ANDROID_KEY_PASSWORD`. Never commit the keystore or its passwords. Without
+these secrets, the workflow uses Expo's default debug signing; do not distribute
+that APK. Switching from an existing signing key requires users to reinstall
+the app once.
+
 ### Dynamic App Icons
 
 The app supports 9 launcher icon variants (black, gray, green, purple, salmon, serious, teal, white, default). These are configured via the `@howincodes/expo-dynamic-app-icon` config plugin in `app.json`. 
@@ -88,9 +96,9 @@ After adding or modifying icon assets, run `npx expo prebuild` to regenerate nat
 
 ### Cloudflare Challenge Flow
 
-When Micro Center's Cloudflare bot detection triggers, the app uses a hidden WebView to solve the challenge automatically. If that fails, a visible WebView modal prompts the user to complete the challenge manually. The flow is implemented in:
+When Micro Center's Cloudflare bot detection triggers, iOS attempts the challenge in a hidden WebView. Android opens a visible WebView so the user can complete any interactive verification. The flow is implemented in:
 
-- `hooks/useChallengeSolver.tsx` — shared background solver hook
+- `hooks/useChallengeSolver.tsx` — shared background challenge flow; Android uses the visible interactive challenge
 - `app/challenge.tsx` — visible challenge modal
 - `services/challengeSession.js` — challenge request persistence
 - `services/challengeWebViewUtils.js` — injected JS for challenge detection
